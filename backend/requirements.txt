@@ -35,7 +35,7 @@ openai==1.56.2
 groq==0.4.2
 
 # Audio Processing
-openai-whisper==20250625
+# openai-whisper==20250625
 pydub==0.25.1
 scipy==1.12.0
 numpy==1.26.3
