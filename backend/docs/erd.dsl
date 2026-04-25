@@ -40,17 +40,17 @@
 // template_scope: public, organization, private
 // interview_scope: global, local, only_invited
 // interview_mode: async, live, hybrid
-// submission_status: pending, in_progress, completed, reviewed
+// submission_status: pending, in_progress, completed, expired, cancelled, reviewed
 // difficulty_level: easy, medium, hard
 // question_type: behavioral, technical, situational, coding
 // coding_topic_type: data_structure, algorithm, pattern, system_design, language_specific, traversal
 // code_execution_status: pending, running, passed, failed, error, timeout, memory_exceeded
-// problem_pipeline_status: pending, solution_fetched, tests_validated, templates_validated, imported
-// problem_source: leetcode
 // proctoring_severity: low, medium, high, critical
 // report_type: candidate_summary, technical_breakdown, behavioral_analysis, proctoring_risk
 // evaluator_type: ai, human, hybrid
 // media_type: video, audio, screen_recording
+// problem_source: leetcode
+// problem_pipeline_status: pending, solution_fetched, tests_validated, templates_validated, imported
 
 // =============================================
 // === CORE ENTITIES ===
@@ -61,12 +61,12 @@ users [icon: user, color: blue] {
   name text
   email text unique
   password_hash text
+  user_type character varying(20)
   status user_status
+  last_login_at timestamptz
+  token_version int
   created_at timestamptz
   updated_at timestamptz
-  user_type varchar(20) // admin or candidate
-  last_login_at timestamptz
-  token_version int // forced logout via increment
 }
 
 organizations [icon: building, color: purple] {
@@ -368,7 +368,14 @@ interview_submissions [icon: send, color: green] {
   mode interview_mode
   status submission_status
   final_score numeric
-  consent_captured boolean
+  consent_captured bool
+  current_exchange_sequence int
+  template_structure_snapshot jsonb
+  proctoring_risk_score numeric
+  proctoring_risk_classification character varying(20)
+  proctoring_flagged bool
+  proctoring_reviewed bool
+  version int
   scheduled_start timestamptz
   scheduled_end timestamptz
   started_at timestamptz
@@ -424,14 +431,26 @@ media_artifacts [icon: video, color: red] {
 
 audio_analytics [icon: mic, color: green] {
   id bigserial pk
-  interview_exchange_id bigint // unique - one analysis per exchange
+  interview_exchange_id bigint unique
   transcript text
   confidence_score numeric
   speech_rate_wpm int
   filler_word_count int
   sentiment_score numeric
   analysis_metadata jsonb
+  transcript_finalized bool
+  language_detected character varying(10)
+  speech_state character varying(20)
+  pause_duration_ms int
+  long_pause_count int
+  filler_rate numeric
+  hesitation_detected bool
+  frustration_detected bool
+  audio_quality_score numeric
+  background_noise_detected bool
   created_at timestamptz
+  updated_at timestamptz
+  finalized_at timestamptz
 }
 
 // =============================================
@@ -441,13 +460,15 @@ audio_analytics [icon: mic, color: green] {
 
 evaluations [icon: percent, color: orange] {
   id bigserial pk
-  interview_exchange_id bigint // unique - one evaluation per exchange
+  interview_exchange_id bigint unique
   rubric_id bigint
   model_id bigint
   evaluator_type evaluator_type
   total_score numeric
   explanation jsonb
-  is_final boolean
+  is_final bool
+  evaluated_by bigint
+  scoring_version text
   evaluated_at timestamptz
   created_at timestamptz
 }
@@ -457,6 +478,7 @@ evaluation_dimension_scores [icon: bar-chart, color: orange] {
   evaluation_id bigint
   rubric_dimension_id bigint
   score numeric
+  max_score numeric
   justification text
   created_at timestamptz
 }
@@ -467,7 +489,7 @@ evaluation_dimension_scores [icon: bar-chart, color: orange] {
 
 code_submissions [icon: terminal, color: red] {
   id bigserial pk
-  interview_exchange_id bigint
+  interview_exchange_id bigint unique
   coding_problem_id bigint
   language text
   source_code text
@@ -476,23 +498,23 @@ code_submissions [icon: terminal, color: red] {
   execution_time_ms int
   memory_kb int
   submitted_at timestamptz
-  created_at timestamptz
   executed_at timestamptz
+  created_at timestamptz
 }
 
 code_execution_results [icon: activity, color: red] {
   id bigserial pk
   code_submission_id bigint
   test_case_id bigint
-  passed boolean
+  passed bool
   actual_output text
   runtime_ms int
   memory_kb int
   compiler_output text
   runtime_output text
   feedback text
-  created_at timestamptz
   exit_code int
+  created_at timestamptz
 }
 
 // =============================================
@@ -571,10 +593,24 @@ resumes [icon: file, color: blue] {
   id bigserial pk
   candidate_id bigint
   file_url text
+  file_name text
   parsed_text text
   extracted_data jsonb
+  structured_json jsonb
+  llm_feedback jsonb
+  ats_score integer
+  ats_feedback text
+  embeddings jsonb
+  parse_status character varying(20)
+  llm_analysis_status character varying(20)
+  embeddings_status character varying(20)
+  parse_error text
+  llm_error text
+  embeddings_error text
   uploaded_at timestamptz
+  analyzed_at timestamptz
   created_at timestamptz
+  updated_at timestamptz
 }
 
 job_descriptions [icon: clipboard, color: purple] {
@@ -655,94 +691,208 @@ audit_logs [icon: lock, color: gray] {
 }
 
 // =============================================
-// === AUTH AUDIT LOG & REFRESH TOKENS ===
+// === AUTHENTICATION & AUDIT ===
 // =============================================
 
-auth_audit_log [icon: lock, color: gray] {
+refresh_tokens [icon: key, color: blue] {
   id bigserial pk
   user_id bigint
-  event_type varchar(50) // login_success, login_failure, logout, token_refresh, password_change, etc.
-  ip_address inet
-  user_agent text
-  metadata jsonb // {error_code, email, organization_id, admin_role, etc.}
-  created_at timestamptz
-}
-
-refresh_tokens [icon: key, color: gray] {
-  id bigserial pk
-  user_id bigint
-  token_hash text unique // SHA-256 hash, original never stored
+  token_hash text unique
   device_info text
   ip_address inet
   issued_at timestamptz
   expires_at timestamptz
   revoked_at timestamptz
-  revoked_reason varchar(100) // logout, password_change, admin_action, suspicious, rotation
+  revoked_reason character varying(100)
+  created_at timestamptz
+}
+
+auth_audit_log [icon: lock, color: blue] {
+  id bigserial pk
+  user_id bigint
+  event_type character varying(50)
+  ip_address inet
+  user_agent text
+  metadata jsonb
   created_at timestamptz
 }
 
 // =============================================
-// === TENANT OVERRIDE TABLES ===
+// === INTERVIEW SUBMISSION STATE & AUDIT ===
 // =============================================
-// Tenant-specific overrides for super-org content.
-// Each follows the same pattern: org + base_content_id + override_fields jsonb.
 
-coding_problem_overrides [icon: layers, color: gray] {
+interview_submission_allowed_transitions [icon: arrows, color: gray] {
+  from_status submission_status pk
+  to_status submission_status pk
+  created_at timestamptz
+}
+
+interview_submission_status_audit [icon: log, color: gray] {
   id bigserial pk
-  organization_id bigint
-  base_content_id bigint // -> coding_problems.id
-  override_fields jsonb
-  is_active boolean
+  submission_id bigint
+  from_status submission_status
+  to_status submission_status
+  actor text
+  occurred_at timestamptz
+}
+
+// =============================================
+// === DIFFICULTY ADAPTATION ===
+// =============================================
+
+difficulty_adaptation_log [icon: trending-up, color: purple] {
+  id bigserial pk
+  submission_id bigint
+  exchange_sequence_order int
+  previous_difficulty character varying(20)
+  previous_score numeric
+  previous_question_id bigint
+  adaptation_rule character varying(50)
+  threshold_up numeric
+  threshold_down numeric
+  max_difficulty_jump int
+  next_difficulty character varying(20)
+  adaptation_reason text
+  difficulty_changed bool
+  decided_at timestamptz
+  rule_version character varying(20)
+  created_at timestamptz
+}
+
+// =============================================
+// === FALLBACK QUESTIONS (GenAI Failure) ===
+// =============================================
+
+generic_fallback_questions [icon: help-circle, color: pink] {
+  id bigserial pk
+  question_type character varying(50)
+  difficulty character varying(20)
+  topic character varying(100)
+  question_text text
+  expected_answer text
+  estimated_time_seconds int
+  is_active bool
+  usage_count int
+  metadata jsonb
+  created_at timestamptz
+}
+
+// =============================================
+// === CANDIDATE CAREER DEVELOPMENT ===
+// =============================================
+
+candidate_career_insight_runs [icon: sparkles, color: purple] {
+  id bigserial pk
+  candidate_id bigint
+  industry text
+  seniority character varying(30)
+  insights jsonb
+  generation_source character varying(20)
+  model_provider character varying(50)
+  model_name character varying(100)
   created_at timestamptz
   updated_at timestamptz
 }
 
-question_overrides [icon: layers, color: gray] {
+candidate_career_roadmaps [icon: map, color: purple] {
   id bigserial pk
-  organization_id bigint
-  base_content_id bigint // -> questions.id
-  override_fields jsonb
-  is_active boolean
+  candidate_id bigint
+  insight_run_id bigint
+  industry text
+  target_role text
+  selected_insight jsonb
+  steps jsonb
+  completed_levels jsonb
+  current_level int
+  is_active bool
+  generation_source character varying(20)
+  model_provider character varying(50)
+  model_name character varying(100)
   created_at timestamptz
   updated_at timestamptz
 }
 
-role_overrides [icon: layers, color: gray] {
+candidate_practice_deck_runs [icon: cards, color: purple] {
   id bigserial pk
-  organization_id bigint
-  base_content_id bigint // -> roles.id
-  override_fields jsonb
-  is_active boolean
+  candidate_id bigint
+  role text
+  industry text
+  question_type character varying(30)
+  difficulty character varying(20)
+  source_question_ids jsonb
+  flashcards jsonb
+  bookmarked_indices jsonb
+  mastered_indices jsonb
+  current_card_index int
+  progress_percent int
+  is_active bool
+  generation_source character varying(20)
+  model_provider character varying(50)
+  model_name character varying(100)
   created_at timestamptz
   updated_at timestamptz
 }
 
-rubric_overrides [icon: layers, color: gray] {
+// =============================================
+// === CONTENT OVERRIDES (Multi-tenant Support) ===
+// =============================================
+
+question_overrides [icon: edit, color: gray] {
   id bigserial pk
   organization_id bigint
-  base_content_id bigint // -> rubrics.id
+  base_content_id bigint
   override_fields jsonb
-  is_active boolean
+  is_active bool
   created_at timestamptz
   updated_at timestamptz
 }
 
-template_overrides [icon: layers, color: gray] {
+coding_problem_overrides [icon: edit, color: gray] {
   id bigserial pk
   organization_id bigint
-  base_content_id bigint // -> interview_templates.id
+  base_content_id bigint
   override_fields jsonb
-  is_active boolean
+  is_active bool
   created_at timestamptz
   updated_at timestamptz
 }
 
-topic_overrides [icon: layers, color: gray] {
+role_overrides [icon: edit, color: gray] {
   id bigserial pk
   organization_id bigint
-  base_content_id bigint // -> topics.id
+  base_content_id bigint
   override_fields jsonb
-  is_active boolean
+  is_active bool
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+rubric_overrides [icon: edit, color: gray] {
+  id bigserial pk
+  organization_id bigint
+  base_content_id bigint
+  override_fields jsonb
+  is_active bool
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+template_overrides [icon: edit, color: gray] {
+  id bigserial pk
+  organization_id bigint
+  base_content_id bigint
+  override_fields jsonb
+  is_active bool
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+topic_overrides [icon: edit, color: gray] {
+  id bigserial pk
+  organization_id bigint
+  base_content_id bigint
+  override_fields jsonb
+  is_active bool
   created_at timestamptz
   updated_at timestamptz
 }
@@ -755,6 +905,35 @@ topic_overrides [icon: layers, color: gray] {
 candidates.user_id > users.id
 admins.user_id > users.id
 admins.organization_id > organizations.id
+
+// --- Authentication & Audit ---
+refresh_tokens.user_id > users.id
+auth_audit_log.user_id > users.id
+
+// --- Interview Submission Status Transitions & Audit ---
+interview_submission_status_audit.submission_id > interview_submissions.id
+difficulty_adaptation_log.submission_id > interview_submissions.id
+difficulty_adaptation_log.previous_question_id > questions.id
+
+// --- Candidate Career Development ---
+candidate_career_insight_runs.candidate_id > candidates.id
+candidate_career_roadmaps.candidate_id > candidates.id
+candidate_career_roadmaps.insight_run_id > candidate_career_insight_runs.id
+candidate_practice_deck_runs.candidate_id > candidates.id
+
+// --- Content Overrides ---
+question_overrides.organization_id > organizations.id
+question_overrides.base_content_id > questions.id
+coding_problem_overrides.organization_id > organizations.id
+coding_problem_overrides.base_content_id > coding_problems.id
+role_overrides.organization_id > organizations.id
+role_overrides.base_content_id > roles.id
+rubric_overrides.organization_id > organizations.id
+rubric_overrides.base_content_id > rubrics.id
+template_overrides.organization_id > organizations.id
+template_overrides.base_content_id > interview_templates.id
+topic_overrides.organization_id > organizations.id
+topic_overrides.base_content_id > topics.id
 
 // --- Roles & Topics ---
 roles.organization_id > organizations.id
@@ -822,6 +1001,7 @@ audio_analytics.interview_exchange_id > interview_exchanges.id
 evaluations.interview_exchange_id > interview_exchanges.id
 evaluations.rubric_id > rubrics.id
 evaluations.model_id > models.id
+evaluations.evaluated_by > users.id
 evaluation_dimension_scores.evaluation_id > evaluations.id
 evaluation_dimension_scores.rubric_dimension_id > rubric_dimensions.id
 
@@ -858,21 +1038,3 @@ prompt_templates.model_id > models.id
 // --- Auditing ---
 audit_logs.organization_id > organizations.id
 audit_logs.actor_user_id > users.id
-
-// --- Auth Audit Log & Refresh Tokens ---
-auth_audit_log.user_id > users.id
-refresh_tokens.user_id > users.id
-
-// --- Tenant Override Tables ---
-coding_problem_overrides.organization_id > organizations.id
-coding_problem_overrides.base_content_id > coding_problems.id
-question_overrides.organization_id > organizations.id
-question_overrides.base_content_id > questions.id
-role_overrides.organization_id > organizations.id
-role_overrides.base_content_id > roles.id
-rubric_overrides.organization_id > organizations.id
-rubric_overrides.base_content_id > rubrics.id
-template_overrides.organization_id > organizations.id
-template_overrides.base_content_id > interview_templates.id
-topic_overrides.organization_id > organizations.id
-topic_overrides.base_content_id > topics.id
