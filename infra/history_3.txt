@@ -1,0 +1,421 @@
+    1  df -h
+    2  lsblk
+    3  sudo blkid /dev/sdb
+    4  sudo mkfs.ext4 /dev/sdb
+    5  sudo mkdir /data
+    6  sudo mount /dev/sdb /data
+    7  df -h
+    8  sudo blkid /dev/sdb
+    9  sudo nano /etc/fstab
+   10  sudo umount /data
+   11  sudo mount -a
+   12  sudo systemctl daemon-reload
+   13  sudo mount -a
+   14  sudo umount /data
+   15  sudo mount -a
+   16  df -h
+   17  clear
+   18  df -h
+   19  lsblk
+   20  sudo mkdir -p /data/postgres
+   21  sudo mkdir -p /data/qdrant
+   22  sudo mkdir -p /data/redis
+   23  sudo mkdir -p /data/hf_cache
+   24  sudo chown -R 999:999 /data/postgres
+   25  sudo chown -R 1000:1000 /data/qdrant
+   26  sudo chown -R 999:999 /data/redis
+   27  sudo chown -R 1000:1000 /data/hf_cache
+   28  ls /data
+   29  sudo apt update
+   30  sudo apt install -y docker.io docker-compose-plugin
+   31  sudo apt install -y docker.io docker-compose
+   32  sudo systemctl enable docker
+   33  sudo systemctl start docker
+   34  sudo usermod -aG docker $USER
+   35  $USER
+   36  echo $USER
+   37  df -h
+   38  ls /data
+   39  df -h
+   40  lsblk
+   41  docker ps
+   42  docker images
+   43  mkdir ~/infra
+   44  cd ~/infra
+   45  ls
+   46  cd infra/
+   47  ls
+   48  cd ..
+   49  ls
+   50  cd infra/
+   51  ls
+   52  ls -a
+   53  ls
+   54  ls -a
+   55  cd infra/
+   56  docker compose up -d .
+   57  docker compose up .
+   58  docker-compose up .
+   59  docker-compose --versio
+   60  docker-compose up -d
+   61  docker ps
+   62  49  docker exec -it postgres pg_isready
+   63  docker exec -it postgres pg_isready
+   64  docker exec -it redis redis-cli -a interviewer@password
+   65  curl http://localhost:6333/collections
+   66  docker exec -it postgres psql -U postgres
+   67  docker cp interviewer.dump postgres:/interviewer.dump
+   68  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+   69  docker exec -it postgres psql -U postgres -d interviewer -c "\dt"
+   70  docker cp interviewer.dump postgres:/interviewer.dump
+   71  du -sh
+   72  du -sh | sh *;
+   73  du -sh | s *;
+   74  du -sh | su *;
+   75  lsblk
+   76  ls -lh
+   77  curl -fsSL https://tailscale.com/install.sh | sh
+   78  sudo tailscale up
+   79  tailscale ip -4
+   80  sudo apt install ufw -y
+   81  sudo ufw allow 22
+   82  sudo ufw allow 80
+   83  sudo ufw allow 443
+   84  sudo ufw allow from 100.0.0.0/8 to any port 5432
+   85  sudo ufw allow from 100.0.0.0/8 to any port 6379
+   86  sudo ufw allow from 100.0.0.0/8 to any port 6333
+   87  sudo ufw allow from 100.0.0.0/8 to any port 8080
+   88  sudo ufw deny 5432
+   89  sudo ufw deny 6379
+   90  sudo ufw deny 6333
+   91  sudo ufw deny 8080
+   92  sudo ufw enable
+   93  sudo ufw status numbered
+   94  sudo nano /data/postgres/pg_hba.conf
+   95  docker exec -it postgres ls
+   96  docker exec -it postgres ls -lh
+   97  ls -lh
+   98  docker cp interviewer.dump postgres:/interviewer.dump
+   99  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+  100  docker exec -it postgres psql -U postgres -d interviewer
+  101  history
+  102  sudo apt update
+  103  sudo apt install -y git
+  104  git clone https://github.com/jithsungh/ai_interviewer.git
+  105  ls
+  106  rm -rf ai_interviewer/
+  107  git clone https://github.com/jithsungh/ai_interviewer.git
+  108  cd ai_interviewer/
+  109  sudo apt update
+  110  sudo apt install -y python3 python3-venv python3-pip git
+  111  python3 -m venv .venv
+  112  source venv/bin/activate
+  113  source .venv/bin/activate
+  114  pip install -r requirements.txt
+  115  uvicorn main:app --reload --port 8000
+  116  bg
+  117  fg
+  118  lsof -i :8000
+  119  ls
+  120  ls -a
+  121  nano .env
+  122  lsof -i :8000
+  123  curl localhost:8000/docs
+  124  curl localhost:8000/
+  125  curl localhost:8000/health
+  126  sudo ufw status numbered
+  127  curl localhost:8000/openapi.json
+  128  clear
+  129  ufw
+  130  sudo ufw status numbered
+  131  ss -tulpn | grep 8000
+  132  lsof -i :8000
+  133  kill -9 10665*
+  134  kill -9 106650
+  135  kill -9 106652
+  136  lsof -i :8000
+  137  uvicorn main:app --reload --host 0.0.0.0 --port 8000
+  138  bg
+  139  journalctl -u your-service -f
+  140  tail -f ~/ai_interviewer/server.log
+  141  cat ~/ai_interviewer/server.log | tail -n 100
+  142  fg
+  143  lsof -i :8000
+  144  cd ai_interviewer/
+  145  ls
+  146  cat server.log
+  147  sudo ufw status numbered
+  148  sudo ufw delete 11
+  149  sudo ufw status numbered
+  150  sudo ufw delete 11
+  151  sudo ufw status numbered
+  152  sudo ufw deny 8080
+  153  sudo ufw status numbered
+  154  sudo ufw delete 19
+  155  sudo ufw reload
+  156  sudo ufw status numbered
+  157  sudo ufw allow 8000
+  158  sudo ufw reload
+  159  htop
+  160  cat server.log
+  161  cat ai_interviewer/server.log
+  162  cd ai_interviewer/
+  163  ls
+  164  git pull
+  165  lsof -i :8000
+  166  kill -9 261160
+  167  pip install -r requirements.txt
+  168  source .venv/bin/activate
+  169  pip install -r requirements.txt
+  170  uvicorn main:app --reload --host 0.0.0.0 --port 8000
+  171  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > servel.log
+  172  lsof -i :8000
+  173  kill -9 308011 308013
+  174  lsof -i :8000
+  175  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > servel.log
+  176  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  177  bg
+  178  lsof -i :8000
+  179  cd ai_interviewer/
+  180  git pull
+  181  lsof -i :8000
+  182  kill -9 308062 308064
+  183  lsof -i :8000
+  184  git pull
+  185  psql -U jithsungh -d interviewer -f app/persistence/postgres/migrations/DEV-16_populate-question-topics.sql
+  186  docker exec -it postgres psql -U jithsungh -d interviewer -f app/persistence/postgres/migrations/DEV-16_populate-question-topics.sql
+  187  docker exec -i postgres psql -U jithsungh -d interviewer < app/persistence/postgres/migrations/DEV-16_populate-question-topics.sql
+  188  pip install -r requirements.txt
+  189  source .venv/bin/activate
+  190  pip install -r requirements.txt
+  191  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  192  bg
+  193  cd ai_interviewer/
+  194  lsof -i :8000
+  195  kill -9 309575
+  196  kill -9 309577
+  197  source .venv/bin/activate
+  198  pip install -r requirements.txt
+  199  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  200  git pull
+  201  pip install -r requirements.txt
+  202  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  203  htop
+  204  lsof -i :5173
+  205  kill -9 323891
+  206  lsof -i :5173
+  207  cd ai-interviewerr/
+  208  npm run build
+  209  npm install -g serve
+  210  sudo npm install -g serve
+  211  serve -s dist -l 5173
+  212  npm run build
+  213  serve -s dist -l 5173
+  214  cat .env
+  215  serve -s dist -l 5173
+  216  history
+  217  lsof -i :8000
+  218  wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+  219  tar -xvzf ngrok-v3-stable-linux-amd64.tgz
+  220  sudo mv ngrok /usr/local/bin/
+  221  ngrok version
+  222  ngrok config add-authtoken 33P8CIDwJmF01zBiEeYtxxO0GNI_6L8MstGeryutAKbSCc5eq
+  223  cd ai_interviewer/
+  224  git pull
+  225  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  226  uvicorn main:app --host 0.0.0.0 --port 8000
+  227  curl http://localhost:8000/docs
+  228  source .venv/bin/activate
+  229  uvicorn main:app --host 0.0.0.0 --port 8000
+  230  uvicorn main:app --reload --host 0.0.0.0 --port 8000 > server.log
+  231  bg
+  232  curl http://localhost:8000/docs
+  233  ngrok http 8000
+  234  lsof -i :8000
+  235  ps aux | grep ngrok
+  236  pkill ngrok
+  237  ps aux | grep ngrok
+  238  pkill ngrok
+  239  ps aux | grep ngrok
+  240  kill -9 314848
+  241  pkill ngrok
+  242  ps aux | grep ngrok
+  243  kill 314879
+  244  sudo rm /usr/local/bin/ngrok
+  245  which ngrok
+  246  rm -rf ~/.config/ngrok
+  247  rm ngrok-v3-stable-linux-amd64.tgz
+  248  cd ...
+  249  cd ..
+  250  rm ngrok-v3-stable-linux-amd64.tgz
+  251  ngrok version
+  252  ps aux | grep ngrok
+  253  sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+  254  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  255  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+  256  sudo apt update
+  257  sudo apt install caddy
+  258  caddy version
+  259  history
+  260  sudo apt remove --purge caddy -y
+  261  sudo apt autoremove -y
+  262  sudo rm -rf /etc/caddy
+  263  sudo rm -rf /var/lib/caddy
+  264  sudo rm /etc/apt/sources.list.d/caddy-stable.list
+  265  sudo rm /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  266  sudo apt updatec
+  267  sudo apt update
+  268  caddy version
+  269  git clone https://github.com/jithsungh/ai-interviewerr.git
+  270  cd ai-interviewerr/
+  271  npm install
+  272  sudo apt install npm
+  273  npm install
+  274  npm start
+  275  npm run --help
+  276  npm run
+  277  vite build
+  278  npm build
+  279  node -v
+  280  npm run dev -- --host 0.0.0.0
+  281  npm run dev -- --host 0.0.0.0 --port 5173
+  282  nano .env
+  283  npm run dev -- --host 0.0.0.0 --port 5173
+  284  bg
+  285  sudo ufw allow 5173
+  286  sudo ufw status numbered
+  287  sudo ufw reload
+  288  curl http://http://135.235.195.83:8000/docs
+  289  curl http://135.235.195.83:8000/docs
+  290  curl http://135.235.195.83:5173
+  291
+  292  nano .env
+  293  sudo nano /etc/systemd/system/interviewer-backend.service
+  294  sudo systemctl daemon-reload
+  295  sudo systemctl enable interviewer-backend
+  296  sudo systemctl start interviewer-backend
+  297  sudo systemctl restart interviewer-backend
+  298  lsof -i :800*
+  299  lsof -i :8000
+  300  lsof -i :8001
+  301  lsof -i :8000
+  302  sudo nano /etc/systemd/system/interviewer-frontend.service
+  303  cd ai-interviewerr/
+  304  git pull
+  305  cd ~/.ssh
+  306  ssh-keygen -t ed25519 -C "vm-deploy-key"
+  307  ls
+  308  cat ~/.ssh/git-pvt.pub
+  309  cd
+  310  rm -rf ai-interviewerr/
+  311  git clone git@github.com:jithsungh/ai-interviewerr.git
+  312  ssh -T git@github.com
+  313  jithsungh@interviewer-infra:~/.ssh$ cd
+  314  jithsungh@interviewer-infra:~$ rm -rf ai-interviewerr/
+  315  jithsungh@interviewer-infra:~$ git clone git@github.com:jithsungh/ai-interviewerr.git
+  316  Cloning into 'ai-interviewerr'...
+  317  The authenticity of host 'github.com (20.207.73.82)' can't be established.
+  318  ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU.
+  319  This key is not known by any other names.
+  320  Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+  321  Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.
+  322  git@github.com: Permission denied (publickey).
+  323  fatal: Could not read from remote repository.
+  324  Please make sure you have the correct access rights
+  325  and the repository exists.
+  326  jithsungh@interviewer-infra:~$ ssh -T git@github.com
+  327  git@github.com: Permission denied (publickey).
+  328  jithsungh@interviewer-infra:~$
+  329  ls ~/.ssh
+  330  rm git-*
+  331  cd ~/.ssh
+  332  rm git-*
+  333  ssh-keygen -t ed25519 -C "vm-deploy-key"
+  334  cat id_ed25519.pub
+  335  rm git-*cd
+  336  cd
+  337  ssh -T git@github.com
+  338  git clone git@github.com:jithsungh/ai-interviewerr.git
+  339  cd ai-interviewerr/
+  340  git pull
+  341  sudo npm install
+  342  sudo systemctl status interviewer-frontend
+  343  sudo ufw status
+  344  cd
+  345  sudo apt update
+  346  sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+  347  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  348  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+  349  sudo apt update
+  350  sudo apt install caddy
+  351  caddy version
+  352  sudo nano /etc/caddy/Caddyfile
+  353  sudo systemctl restart caddy
+  354  sudo systemctl status caddy
+  355  sudo systemctl restart interviewer-backend
+  356  sudo systemctl restart interviewer-frontend
+  357  cd ai-interviewerr/
+  358  cat .env
+  359  nano .env
+  360  sudo systemctl status interviewer-frontend
+  361  nano .env
+  362  sudo systemctl status interviewer-frontend
+  363  sudo nano /etc/caddy/Caddyfile
+  364  sudo systemctl restart caddy
+  365  sudo systemctl status caddy
+  366  sudo nano /etc/systemd/system/interviewer-frontend.service
+  367  sudo systemctl daemon-reload
+  368  sudo systemctl enable interviewer-frontend
+  369  sudo systemctl start interviewer-frontend
+  370  ss lntp
+  371  ss -lntp
+  372  lsof -i :8000
+  373  kill -9 314531 314533
+  374  lsof -i :5173
+  375  kill -9 325021
+  376  ss -lntp
+  377  lsof -i :8000
+  378  kill -9 327213
+  379  lsof -i :8000
+  380  fg
+  381  cd ai_
+  382  cd ai_interviewer/
+  383  fg
+  384  sudo systemctl restart interviewer-backend
+  385  kill -9 325021
+  386  ss -lntp
+  387  sudo systemctl restart interviewer-frontend
+  388  ss -lntp
+  389  nano ~/.ssh/authorized_keys
+  390  sudo systemctl status interview-backend
+  391  sudo systemctl status interviewer-backend
+  392  sudo systemctl status interviewer-frontend
+  393  systemctl status interviewer-frontend
+  394  systemctl restart interviewer-backend
+  395  sudo systemctl restart interviewer-backend
+  396  sudo systemctl status interviewer-backend
+  397  sudo systemctl status interviewer-frontend
+  398  sudo systemctl stop interviewer-frontend.service
+  399  sudo systemctl status interviewer-frontend
+  400  sudo systemctl stop interviewer-frontend
+  401  sudo systemctl status interviewer-frontend
+  402  sudo nano /etc/caddy/Caddyfile
+  403  sudo cp /etc/caddy/Caddyfile /tmp/Caddyfile
+  404  sudo nano /etc/caddy/Caddyfile
+  405  sudo systemctl restart caddy
+  406  sudo systemctl status caddy
+  407  cd ai-interviewerr/
+  408  cat .env
+  409  cd ../ai_interviewer/
+  410  cat server.log
+  411  sudo nano /etc/caddy/Caddyfile
+  412  sudo systemctl restart caddy
+  413  sudo systemctl status caddy
+  414  sudo systemctl status interviewer-backend
+  415  cd ai_interviewer/
+  416  nano .env
+  417  rm .env
+  418  nano .env
+  419  sudo systemctl status interviewer-backend
+  420  ls
+  421  history

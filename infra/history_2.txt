@@ -1,0 +1,101 @@
+ 1  df -h
+    2  lsblk
+    3  sudo blkid /dev/sdb
+    4  sudo mkfs.ext4 /dev/sdb
+    5  sudo mkdir /data
+    6  sudo mount /dev/sdb /data
+    7  df -h
+    8  sudo blkid /dev/sdb
+    9  sudo nano /etc/fstab
+   10  sudo umount /data
+   11  sudo mount -a
+   12  sudo systemctl daemon-reload
+   13  sudo mount -a
+   14  sudo umount /data
+   15  sudo mount -a
+   16  df -h
+   17  clear
+   18  df -h
+   19  lsblk
+   20  sudo mkdir -p /data/postgres
+   21  sudo mkdir -p /data/qdrant
+   22  sudo mkdir -p /data/redis
+   23  sudo mkdir -p /data/hf_cache
+   24  sudo chown -R 999:999 /data/postgres
+   25  sudo chown -R 1000:1000 /data/qdrant
+   26  sudo chown -R 999:999 /data/redis
+   27  sudo chown -R 1000:1000 /data/hf_cache
+   28  ls /data
+   29  sudo apt update
+   30  sudo apt install -y docker.io docker-compose-plugin
+   31  sudo apt install -y docker.io docker-compose
+   32  sudo systemctl enable docker
+   33  sudo systemctl start docker
+   34  sudo usermod -aG docker $USER
+   35  $USER
+   36  echo $USER
+   37  df -h
+   38  ls /data
+   39  df -h
+   40  lsblk
+   41  docker ps
+   42  docker images
+   43  mkdir ~/infra
+   44  cd ~/infra
+   45  ls
+   46  cd infra/
+   47  ls
+   48  cd ..
+   49  ls
+   50  cd infra/
+   51  ls
+   52  ls -a
+   53  ls
+   54  ls -a
+   55  cd infra/
+   56  docker compose up -d .
+   57  docker compose up .
+   58  docker-compose up .
+   59* docker-compose --versio
+   60  docker-compose up -d
+   61  docker ps
+   62  49  docker exec -it postgres pg_isready
+   63  docker exec -it postgres pg_isready
+   64  docker exec -it redis redis-cli -a interviewer@password
+   65  curl http://localhost:6333/collections
+   66  docker exec -it postgres psql -U postgres
+   67  docker cp interviewer.dump postgres:/interviewer.dump
+   68  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+   69  docker exec -it postgres psql -U postgres -d interviewer -c "\dt"
+   70  docker cp interviewer.dump postgres:/interviewer.dump
+   71  du -sh
+   72  du -sh | sh *;
+   73  du -sh | s *;
+   74  du -sh | su *;
+   75  lsblk
+   76  ls -lh
+   77  curl -fsSL https://tailscale.com/install.sh | sh
+   78  sudo tailscale up
+   79  tailscale ip -4
+   80  sudo apt install ufw -y
+   81  sudo ufw allow 22
+   82  sudo ufw allow 80
+   83  sudo ufw allow 443
+   84  sudo ufw allow from 100.0.0.0/8 to any port 5432
+   85  sudo ufw allow from 100.0.0.0/8 to any port 6379
+   86  sudo ufw allow from 100.0.0.0/8 to any port 6333
+   87  sudo ufw allow from 100.0.0.0/8 to any port 8080
+   88  sudo ufw deny 5432
+   89  sudo ufw deny 6379
+   90  sudo ufw deny 6333
+   91  sudo ufw deny 8080
+   92  sudo ufw enable
+   93  sudo ufw status numbered
+   94  sudo nano /data/postgres/pg_hba.conf
+   95  docker exec -it postgres ls
+   96  docker exec -it postgres ls -lh
+   97  ls -lh
+   98  docker cp interviewer.dump postgres:/interviewer.dump
+   99  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+  100  docker exec -it postgres psql -U postgres -d interviewer
+  101  history

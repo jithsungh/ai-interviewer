@@ -1,0 +1,200 @@
+1  clear
+    2  lsblk -h
+    3  lsblk -a
+    4  lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT
+    5  sudo blkid /dev/sdb
+    6  sudo mkfs.ext4 /dev/sdb
+    7  sudo mkdir /data
+    8  sudo mount /dev/sdb /data
+    9  df -h
+   10  sudo blkid /dev/sdb
+   11  sudo nano /etc/fstab
+   12  sudo umount /data
+   13  sudo mount -a
+   14  systemctl daemon-reload
+   15  sudo systemctl daemon-reload
+   16  sudo umount /data
+   17  sudo mount -a
+   18  df -h
+   19  clear
+   20  sudo mkdir -p /data/postgres
+   21  sudo mkdir -p /data/qdrant
+   22  sudo chown -R 999:999 /data/postgres
+   23  sudo chown -R 1000:1000 /data/qdrant
+   24  sudo apt update
+   25  sudo apt install -y docker.io docker-compose
+   26  sudo systemctl enable docker
+   27  sudo systemctl start docker
+   28  sudo usermod -aG docker $USER
+   29  $USER
+   30  echo $USER
+   31  exit
+   32  df -h
+   33  lsblk -a
+   34  ls /data
+   35  sudo mkdir -p /data/redis
+   36  ls /data
+   37  sudo chown -R 999:999 /data/redis
+   38  mkdir ~/infra/
+   39  ls
+   40  nano ~/infra/.env
+   41  nano ~/infra/docker-compose.yml
+   42  cd ~/infra/
+   43  docker compose up -d
+   44  docker compose up -d .
+   45  docker --version
+   46  docker-compose --version
+   47  docker-compose up -d
+   48  docker ps
+   49  docker exec -it postgres pg_isready
+   50  docker exec -it postgres psql -U postgres
+   51  docker exec -it redis redis-cli -a superredispassword
+   52  docker exec -it redis redis-cli -a interviewer@password
+   53  htop
+   54  docker exec -it redis redis-cli -a interviewer@password
+   55  docker exec -it qdrant ls /qdrant/storage
+   56  ls -lah /data/qdrant
+   57  df -h
+   58  curl http://localhost:6333
+   59  curl http://localhost:6333/collections
+   60  nano docker-compose.yml
+   61  clear
+   62  ls ../
+   63  ls -lh interviewer.dump
+   64  cd ..
+   65  ls -lh interviewer.dump
+   66  docker exec -it postgres psql -U postgres -c "DROP DATABASE IF EXISTS ai_interviewer;"
+   67  docker exec -it postgres psql -U postgres -c "CREATE DATABASE interviewer;"
+   68  docker exec -it postgres psql -U postgres -c "DROP DATABASE IF EXISTS interviewer;"
+   69  docker exec -it postgres psql -U postgres -c "CREATE DATABASE interviewer;"
+   70  docker cp interviewer.dump postgres:/interviewer.dump
+   71  docker exec -it postgres pg_restore -U postgres -d ai_interviewer /interviewer.dump
+   72  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+   73  docker exec -it postgres postgres --version
+   74  file interviewer.dump
+   75  docker compose down
+   76  cd infra/
+   77  docker compose down
+   78  docker-compose down
+   79  nano docker-compose.yml
+   80  docker-compose up -d
+   81  docker exec -it postgres postgres --version
+   82  docker ps
+   83  docker exec -it postgres postgres --version
+   84  docker ps
+   85  docker exec -it postgres postgres --version
+   86  docker-compose down
+   87  sudo rm -rf /data/postgres/*
+   88  ls -lah /data/postgres
+   89  sudo ls -lah /data/postgres
+   90  sudo rm -rf /data/postgres/*
+   91  sudo ls -lah /data/postgres
+   92  sudo rm -rf /data/postgres
+   93  sudo ls -lah /data/postgres
+   94  sudo mkdir /data/postgres
+   95  sudo chown -R 999:999 /data/postgres
+   96  sudo chmod 700 /data/postgres
+   97  ls -lah /data
+   98  docker compose up -d postgres
+   99  docker-compose up -d postgres
+  100  docker ps
+  101  docker-compose up -d redis
+  102  docker-compose up -d qdrant
+  103  docker ps
+  104  docker cp interviewer.dump postgres:/interviewer.dump
+  105  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+  106  cd ..
+  107  docker cp interviewer.dump postgres:/interviewer.dump
+  108  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+  109  docker exec -it postgres psql -U postgres
+  110  docker exec -it postgres pg_restore -U postgres -d interviewer /interviewer.dump
+  111  docker exec -it postgres psql -U postgres
+  112  clear
+  113  curl -fsSL https://tailscale.com/install.sh | sh
+  114  sudo tailscale up
+  115  tailscale status
+  116  tailscale ip -4
+  117  nano infra/docker-compose.yml
+  118  cd infra/
+  119  docker-compose down
+  120  docker-compose up -d
+  121  docker exec -it postgres psql -U postgres
+  122  sudo apt install ufw -y
+  123  cd ..
+  124  cd
+  125  sudo ufw allow 22
+  126  sudo ufw allow 80
+  127  sudo ufw allow 443
+  128  sudo ufw enable
+  129  sudo ufw allow from 100.0.0.0/8 to any port 5432
+  130  sudo ufw deny 5432
+  131  sudo ufw allow from 100.0.0.0/8 to any port 6379
+  132  sudo ufw allow from 100.0.0.0/8 to any port 6333
+  133  sudo ufw deny 6379 6333
+  134  sudo ufw deny 6379
+  135  sudo ufw deny 6333
+  136  docker exec -it postgres bash
+  137  nano /var/lib/postgresql/data/pg_hba.conf
+  138  docker exec -it postgres bash
+  139  nano /var/lib/postgresql/data/pg_hba.conf
+  140  sudo nano /data/postgres/pg_hba.conf
+  141  docker restart postgres
+  142  docker exec -it postgres psql -U postgres -c "SHOW hba_file;"
+  143  docker exec -it postgres psql -U postgres -c "SELECT * FROM pg_hba_file_rules;"
+  144  sudo ufw status
+  145  ss -tulnp | grep 5432
+  146  ss -tulnp
+  147  sudo ufw status numbered
+  148  ss -tulnp | grep -E '6379|6333'
+  149  docker ps
+  150  psql
+  151  redis-cli
+  152  curl qdrant
+  153  exit
+  154  history
+  155  exit
+  156  sudo mkdir -p /data/hf-cache
+  157  sudo chown -R 1000:1000 /data/hf_cache
+  158  rmdir /data/hf-cache
+  159  sudo rmdir /data/hf-cache
+  160  sudo mkdir -p /data/hf_cache
+  161  sudo chown -R 1000:1000 /data/hf_cache
+  162  cd infra/
+  163  nano docker-compose.yml
+  164  docker-compose up -d embedding-service
+  165  docker ps
+  166  sudo ufw allow from 100.0.0.0/8 to any port 8080
+  167  sudo ufw deny 8080
+  168  sudo ufw status numbered
+  169  docker ps
+  170  curl http://localhost:8080/v1/embeddings   -X POST   -H "Content-Type: application/json"   -d '{
+  171      "input": "Explain dependency injection in Python"
+  172    }'
+  173  docker logs embedding-service
+  174  sudo ss -tulnp | grep 8080
+  175  curl http://localhost:8080/health
+  176  sudo ufw status numbered
+  177  curl http://localhost:8080/v1/embeddings   -X POST   -H "Content-Type: application/json"   -d '{"input":"hello"}'
+  178  curl http://localhost:8080/
+  179  docker exec -it embedding-service curl http://localhost:80/v1/embeddings   -X POST   -H "Content-Type: application/json"   -d '{"input":"hello"}'
+  180  curl http://localhost:8080/embed   -X POST   -H "Content-Type: application/json"   -d '{"inputs":"hello"}'
+  181  curl -v http://localhost:8080/v1/embeddings
+  182  nano docker-compose.yml
+  183  docker-compose down embedding-service
+  184  docker ps
+  185  docker-compose down embedding-service
+  186  docker-compose down . embedding-service
+  187  docker compose down
+  188  docker compose up -d
+  189  docker stop embedding-service
+  190  docker rm embedding-service
+  191  docker-compose up -d embedding-service
+  192  docker ps
+  193  curl -v http://localhost:8080/v1/embeddings
+  194  curl http://localhost:8080/embed   -X POST   -H "Content-Type: application/json"   -d '{"inputs":"hello"}'
+  195  clear
+  196  htop
+  197  sudo ufw allow from 100.0.0.0/8 to any port 6334
+  198  sudo ufw deny 6334
+  199  exit
+  200  history
