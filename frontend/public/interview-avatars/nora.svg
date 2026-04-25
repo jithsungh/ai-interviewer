@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#001938"/>
+      <stop offset="100%" stop-color="#12345A"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="640" rx="56" fill="url(#bg)"/>
+  <circle cx="320" cy="228" r="110" fill="#E8D4C2"/>
+  <path d="M220 248c10-74 56-124 100-124s90 50 100 124c-30-20-67-34-100-34s-70 14-100 34Z" fill="#1E293B"/>
+  <path d="M247 250c12 76 40 118 73 118s61-42 73-118" fill="none" stroke="#E2B48B" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="320" cy="286" r="10" fill="#001938"/>
+  <rect x="116" y="500" width="408" height="44" rx="22" fill="#7697CC"/>
+  <text x="320" y="528" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" fill="#fff" font-weight="700">noor Patel</text>
+</svg>
