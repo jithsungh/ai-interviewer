@@ -6,6 +6,7 @@ import { Mic, MicOff, Volume2, VolumeX, SkipForward, Pause, Play, Loader2, Check
 import { cn } from '@/lib/utils';
 import { InterviewAvatar } from '@/components/interview/InterviewAvatar';
 import { NetworkStatusBadge } from '@/components/interview/NetworkStatusBadge';
+import { useToast } from '@/hooks/use-toast';
 import type { IntegrityLevel } from '@/hooks/useProctoringMonitor';
 import type { InterviewVoiceType } from '@/types/interviewCustomization';
 
@@ -60,6 +61,7 @@ export const SpeakingQuestion = ({
   onProctoringEvent,
 }: SpeakingQuestionProps) => {
   const isDev = import.meta.env.DEV;
+  const { toast } = useToast();
   const interviewThemeVars: CSSProperties = {
     ['--primary' as any]: '#001938',
     ['--primary-foreground' as any]: '#ffffff',
@@ -97,6 +99,12 @@ export const SpeakingQuestion = ({
   const [microphoneError, setMicrophoneError] = useState('');
   const [isPaused, setIsPaused] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [headTurnWarning, setHeadTurnWarning] = useState(false);
+  const [postureMetrics, setPostureMetrics] = useState({
+    eyeContact: 100,
+    headTurns: 0,
+    lookAwayCount: 0,
+  });
   const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -106,6 +114,16 @@ export const SpeakingQuestion = ({
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const microphoneProbeStreamRef = useRef<MediaStream | null>(null);
   const readStartLockRef = useRef(false);
+  const postureRef = useRef({
+    eyeContact: 100,
+    headTurns: 0,
+    lookAwayCount: 0,
+    frames: 0,
+    faceFrames: 0,
+  });
+  const headTurnRef = useRef(false);
+  const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const proctoringCooldownRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -221,6 +239,154 @@ export const SpeakingQuestion = ({
       setCameraReady(true);
     }
   }, [cameraReady]);
+
+  useEffect(() => {
+    if (!cameraReady || !candidateVideoRef.current) {
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      return;
+    }
+
+    let rafId = 0;
+    let frameCounter = 0;
+
+    const emitProctoringEventWithCooldown = (
+      key: string,
+      eventType: string,
+      severity: 'low' | 'medium' | 'high',
+      message: string,
+      metadata?: Record<string, unknown>,
+      cooldownMs = 30000,
+    ) => {
+      const now = Date.now();
+      const last = proctoringCooldownRef.current[key] ?? 0;
+      if (now - last < cooldownMs) return;
+      proctoringCooldownRef.current[key] = now;
+
+      const toastVariant = severity === 'high' ? 'destructive' : 'default';
+      toast({
+        title: severity === 'high' ? 'Proctoring alert' : 'Proctoring notice',
+        description: message,
+        variant: toastVariant,
+      });
+
+      onProctoringEvent?.(eventType, severity, message, metadata);
+    };
+
+    const detectPosture = () => {
+      const video = candidateVideoRef.current;
+      if (!video || video.readyState < 2 || isPausedRef.current) {
+        rafId = requestAnimationFrame(detectPosture);
+        return;
+      }
+
+      frameCounter += 1;
+      if (frameCounter % 4 !== 0) {
+        rafId = requestAnimationFrame(detectPosture);
+        return;
+      }
+
+      const width = video.videoWidth || 320;
+      const height = video.videoHeight || 240;
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.drawImage(video, 0, 0, width, height);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+
+      let leftPixels = 0;
+      let rightPixels = 0;
+      let totalSkin = 0;
+      const midX = width / 2;
+
+      for (let i = 0; i < data.length; i += 24) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (r > 95 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15) {
+          totalSkin += 1;
+          const pixelIndex = Math.floor(i / 4);
+          const x = pixelIndex % width;
+          if (x < midX) leftPixels += 1;
+          else rightPixels += 1;
+        }
+      }
+
+      postureRef.current.frames += 1;
+      const hasFace = totalSkin > 180;
+      if (hasFace) postureRef.current.faceFrames += 1;
+
+      const ratio = totalSkin > 40 ? leftPixels / (leftPixels + rightPixels) : 0.5;
+      const turned = hasFace && (ratio < 0.28 || ratio > 0.72);
+
+      if (turned && !headTurnRef.current) {
+        headTurnRef.current = true;
+        postureRef.current.headTurns += 1;
+        postureRef.current.lookAwayCount += 1;
+        setHeadTurnWarning(true);
+        if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
+        warningTimeoutRef.current = setTimeout(() => setHeadTurnWarning(false), 2600);
+
+        emitProctoringEventWithCooldown(
+          'head-turn',
+          'frequent_head_turn',
+          'medium',
+          'Frequent head-turn or look-away behavior detected.',
+          {
+            submission_id: submissionId ?? null,
+            head_turns: postureRef.current.headTurns,
+          },
+          12000,
+        );
+      } else if (!turned) {
+        headTurnRef.current = false;
+      }
+
+      if (postureRef.current.frames % 45 === 0) {
+        const eyeContact = postureRef.current.frames > 0
+          ? Math.round((postureRef.current.faceFrames / postureRef.current.frames) * 100)
+          : 100;
+
+        const next = {
+          eyeContact: Math.min(Math.max(eyeContact, 0), 100),
+          headTurns: postureRef.current.headTurns,
+          lookAwayCount: postureRef.current.lookAwayCount,
+        };
+        setPostureMetrics(next);
+
+        if (next.eyeContact < 55) {
+          emitProctoringEventWithCooldown(
+            'low-eye-contact',
+            'no_eye_contact',
+            'medium',
+            'Low eye-contact confidence detected during speaking response.',
+            {
+              submission_id: submissionId ?? null,
+              eye_contact: next.eyeContact,
+            },
+            30000,
+          );
+        }
+      }
+
+      rafId = requestAnimationFrame(detectPosture);
+    };
+
+    rafId = requestAnimationFrame(detectPosture);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (warningTimeoutRef.current) {
+        clearTimeout(warningTimeoutRef.current);
+        warningTimeoutRef.current = null;
+      }
+    };
+  }, [cameraReady, onProctoringEvent, submissionId]);
 
   useEffect(() => {
     if (!navigator.mediaDevices?.enumerateDevices) {
@@ -676,6 +842,12 @@ export const SpeakingQuestion = ({
             <div className="flex items-center gap-2">
               <Badge className="border-0 bg-[rgba(34,197,94,0.2)] text-emerald-900">Voice {isMuted ? 'Off' : 'On'}</Badge>
               <Badge className="border-0 bg-[rgba(59,130,246,0.2)] text-blue-900">Timer {formatTimer(elapsedSeconds)}</Badge>
+              <Badge className={cn('border-0', postureMetrics.eyeContact >= 70 ? 'bg-emerald-500/20 text-emerald-900' : 'bg-amber-500/20 text-amber-900')}>
+                Eye Contact {cameraReady ? `${postureMetrics.eyeContact}%` : 'N/A'}
+              </Badge>
+              <Badge className={cn('border-0', postureMetrics.headTurns <= 2 ? 'bg-emerald-500/20 text-emerald-900' : 'bg-rose-500/20 text-rose-900')}>
+                Head Turns {cameraReady ? postureMetrics.headTurns : 'N/A'}
+              </Badge>
               {timeRemainingSeconds != null && (
                 <div
                   className={cn(
@@ -772,6 +944,27 @@ export const SpeakingQuestion = ({
                   </Badge>
                 </div>
 
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(255,255,255,0.6)]">Eye Contact</p>
+                    <div className="mt-1 flex items-center justify-between text-xs text-white">
+                      <span>{cameraReady ? `${postureMetrics.eyeContact}%` : 'N/A'}</span>
+                      <span className={cn(postureMetrics.eyeContact >= 70 ? 'text-emerald-300' : 'text-amber-300')}>
+                        {postureMetrics.eyeContact >= 70 ? 'Good' : 'Low'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(255,255,255,0.6)]">Head Turns</p>
+                    <div className="mt-1 flex items-center justify-between text-xs text-white">
+                      <span>{cameraReady ? postureMetrics.headTurns : 'N/A'}</span>
+                      <span className={cn(postureMetrics.headTurns <= 2 ? 'text-emerald-300' : 'text-rose-300')}>
+                        {postureMetrics.headTurns <= 2 ? 'Stable' : 'Distracted'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="relative h-[calc(100%-2.2rem)] min-h-[260px] overflow-hidden rounded-[18px] border border-[rgba(255,255,255,0.14)] bg-[rgba(2,12,28,0.72)]">
                   {cameraReady ? (
                     <video ref={setCandidateVideoElement} autoPlay muted playsInline className="h-full w-full object-cover scale-x-[-1]" />
@@ -781,6 +974,19 @@ export const SpeakingQuestion = ({
                       <Button variant="outline" onClick={startCameraPreview} className="border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.14)]">
                         Start Camera Preview
                       </Button>
+                    </div>
+                  )}
+
+                  {cameraReady && (
+                    <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-white">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+                      Live Proctoring
+                    </div>
+                  )}
+
+                  {headTurnWarning && (
+                    <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-rose-300/30 bg-rose-500/85 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
+                      Keep your eyes on the camera
                     </div>
                   )}
                 </div>

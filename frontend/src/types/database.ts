@@ -17,7 +17,38 @@ export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 export type QuestionType = 'behavioral' | 'technical' | 'situational' | 'coding';
 export type CodingTopicType = 'data_structure' | 'algorithm' | 'pattern' | 'system_design' | 'language_specific' | 'traversal';
 export type CodeExecutionStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error' | 'timeout' | 'memory_exceeded';
-export type ProctoringEventType = 'tab_switch' | 'face_missing' | 'multiple_faces' | 'audio_anomaly' | 'window_switch' | 'device_detected';
+export type ProctoringEventType =
+  | 'tab_switch'
+  | 'window_switch'
+  | 'window_blur'
+  | 'window_focus_lost'
+  | 'face_absent'
+  | 'multiple_faces'
+  | 'no_eye_contact'
+  | 'frequent_head_turn'
+  | 'multiple_voices'
+  | 'background_noise_spike'
+  | 'microphone_error'
+  | 'microphone_unsupported'
+  | 'microphone_permission_unavailable'
+  | 'microphone_permission_denied'
+  | 'microphone_device_missing'
+  | 'camera_disabled'
+  | 'camera_permission_unavailable'
+  | 'camera_permission_denied'
+  | 'camera_stream_ended'
+  | 'camera_device_missing'
+  | 'microphone_disabled'
+  | 'device_change'
+  | 'screen_recording_started'
+  | 'screen_recording_stopped'
+  | 'screen_recording_denied'
+  | 'screen_recording_error'
+  | 'screen_recording_unavailable'
+  | 'screen_recording_persisted'
+  | 'screen_recording_persist_failed'
+  | 'screen_share_not_fullscreen'
+  | 'screen_share_ended';
 export type ProctoringRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type ReportType = 'candidate_summary' | 'technical_breakdown' | 'behavioral_analysis' | 'proctoring_risk';
 export type EvaluatorType = 'ai' | 'human' | 'hybrid';
