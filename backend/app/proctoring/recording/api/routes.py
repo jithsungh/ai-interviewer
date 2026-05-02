@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.bootstrap.dependencies import get_db_session_with_commit, get_identity
@@ -150,4 +151,38 @@ async def get_playback(
     except Exception as exc:
         logger.error(f"Failed to generate presigned Azure URL: {exc}", exc_info=True)
         return {"error": "failed_to_generate_url"}
+
+
+@router.get(
+    "/recordings/{submission_id}/latest",
+    status_code=status.HTTP_200_OK,
+    summary="Get latest recording metadata for a submission",
+)
+async def get_latest_recording(
+    submission_id: int,
+    session: Session = Depends(get_db_session_with_commit),
+    identity: IdentityContext = Depends(get_identity),
+):
+    """Return the newest persisted recording artifact for a submission.
+
+    This helps admin UIs open the latest recording without needing to know
+    the artifact id ahead of time.
+    """
+    rec = (
+        session.query(ProctoringRecordingModel)
+        .filter(ProctoringRecordingModel.interview_submission_id == submission_id)
+        .order_by(desc(ProctoringRecordingModel.created_at), desc(ProctoringRecordingModel.id))
+        .one_or_none()
+    )
+
+    if not rec:
+        return {"error": "recording_not_found"}
+
+    return {
+        "artifact_id": rec.artifact_id,
+        "storage_path": rec.storage_path,
+        "mime_type": rec.mime_type,
+        "file_size_bytes": rec.file_size_bytes,
+        "created_at": rec.created_at,
+    }
 
