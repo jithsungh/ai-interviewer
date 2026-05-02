@@ -147,6 +147,18 @@ def register_routers(app: FastAPI) -> None:
         tags=["Proctoring"],
     )
     logger.debug("✓ Proctoring risk model router registered")
+
+    # Proctoring Recording Sub-Module
+    try:
+        from app.proctoring.recording.api.routes import router as proctoring_recording_router
+        app.include_router(
+            proctoring_recording_router,
+            prefix=f"{api_prefix}/proctoring",
+            tags=["Proctoring"],
+        )
+        logger.debug("✓ Proctoring recording router registered")
+    except Exception:
+        logger.debug("Proctoring recording router not available yet")
     
     # Audio Ingestion Module
     from app.audio.ingestion.api.routes import router as audio_ingestion_router

@@ -448,10 +448,14 @@ class Settings(BaseSettings):
         try:
             app_settings = AppSettings()
             
-            # Azure storage is optional — only load if credentials are configured
+            # Azure storage is required for recordings and resumes
+            # Try to load it; if it fails due to missing credentials, mark as unavailable
             azure_storage = None
-            if os.getenv("AZURE_STORAGE_ACCOUNT_NAME") and os.getenv("AZURE_STORAGE_ACCOUNT_KEY"):
+            try:
                 azure_storage = AzureStorageSettings()
+                logger.info("✅ Azure Blob Storage configured")
+            except Exception as e:
+                logger.warning(f"⚠️  Azure Blob Storage not configured: {e}. Please set AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY in .env")
             
             settings = cls(
                 app=app_settings,

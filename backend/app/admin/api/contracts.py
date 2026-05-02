@@ -12,11 +12,11 @@ No business logic — validation of format and types only.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date, time
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -434,13 +434,62 @@ class WindowCreateRequest(BaseModel):
     """Request body for POST /windows."""
     name: str = Field(..., max_length=255)
     scope: InterviewScope = Field(...)
+    # Canonical fields (preferred): full datetimes
     start_time: datetime = Field(...)
     end_time: datetime = Field(...)
     timezone: str = Field(..., max_length=50)
+    # Compatibility convenience fields accepted from legacy/front-end forms
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    # Allow single-template shortcut fields (will be converted into `mappings`)
+    template_id: Optional[int] = None
+    role_id: Optional[int] = None
+    role_ids: Optional[List[int]] = None
     max_allowed_submissions: Optional[int] = Field(None, gt=0)
     allow_after_end_time: bool = False
     allow_resubmission: bool = False
     mappings: List[WindowMappingRequest] = Field(..., min_length=1, description="Must include >= 1 mapping")
+
+    @model_validator(mode="before")
+    def _coerce_compatibility(cls, values: dict) -> dict:  # type: ignore[override]
+        """Accept convenient fields from older forms and normalize into canonical fields.
+
+        - If `start_date`/`end_date` supplied without times, populate `start_time` / `end_time`.
+        - If `template_id` + `role_id`/`role_ids` supplied, build `mappings`.
+        """
+        # Normalize dates -> datetimes when times missing
+        try:
+            if "start_time" not in values and values.get("start_date"):
+                sd = values.get("start_date")
+                if isinstance(sd, str):
+                    sd = date.fromisoformat(sd)
+                values["start_time"] = datetime.combine(sd, time.min)
+
+            if "end_time" not in values and values.get("end_date"):
+                ed = values.get("end_date")
+                if isinstance(ed, str):
+                    ed = date.fromisoformat(ed)
+                values["end_time"] = datetime.combine(ed, time.max)
+        except Exception:
+            # Let pydantic perform the final validation/error reporting
+            pass
+
+        # Build mappings from template_id + role_id(s)
+        if "mappings" not in values or not values.get("mappings"):
+            tid = values.get("template_id")
+            r1 = values.get("role_id")
+            rlist = values.get("role_ids")
+            if tid and (r1 or rlist):
+                built = []
+                if r1:
+                    built.append({"role_id": int(r1), "template_id": int(tid)})
+                if rlist:
+                    for rr in rlist:
+                        built.append({"role_id": int(rr), "template_id": int(tid)})
+                if built:
+                    values["mappings"] = built
+
+        return values
 
 
 class WindowUpdateRequest(BaseModel):
@@ -564,4 +613,30 @@ class OverrideDetailResponse(BaseModel):
 class SuccessResponse(BaseModel):
     """Generic success response for operations that return no body."""
     message: str = "Operation successful"
+    meta: MetaInfo = Field(default_factory=MetaInfo)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Audit Logs
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class AdminAuditLogResponse(BaseModel):
+    """Single audit log entry."""
+    id: int
+    organization_id: int
+    actor_user_id: Optional[int] = None
+    action: str  # CREATE, UPDATE, DELETE, PUBLISH
+    entity_type: str  # template, question, etc.
+    entity_id: Optional[int] = None
+    old_value: Optional[Dict[str, Any]] = None
+    new_value: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+
+
+class AdminAuditLogListResponse(BaseModel):
+    """Paginated list of audit logs."""
+    data: List[AdminAuditLogResponse]
+    pagination: PaginationMeta
     meta: MetaInfo = Field(default_factory=MetaInfo)

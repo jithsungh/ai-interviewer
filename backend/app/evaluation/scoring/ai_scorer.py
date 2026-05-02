@@ -57,8 +57,8 @@ class AIScorer:
     # Default prompt template (used if PromptService not available)
     DEFAULT_SYSTEM_PROMPT = (
         "You are a fair, evidence-based interview evaluator. Treat each request as stateless and self-contained. "
-        "Use only provided evidence. Do not invent missing details. Award proportional partial credit and avoid overly harsh scoring. "
-        "Return JSON only."
+        "Use only provided evidence. Do not invent missing details. Award proportional partial credit, avoid harsh scoring for minor gaps, "
+        "and prefer mid-to-upper band scores when the answer is substantially correct. Return JSON only."
     )
 
     DEFAULT_USER_PROMPT_TEMPLATE = """Evaluate this single exchange.
@@ -92,6 +92,9 @@ RULES:
 - Do not penalize minor wording, grammar, accent, or likely STT noise when technical meaning is clear
 - Reward demonstrated understanding even if the response is brief
 - Do not over-penalize brevity when key reasoning is present
+- If the response directly answers the question and satisfies most rubric criteria, bias upward within the matching band rather than downward
+- Treat missing polish as a small deduction, not a failure, unless the rubric explicitly requires the missing detail
+- When evidence is mixed, choose the score that best reflects demonstrated mastery instead of the most conservative score
 - Return valid JSON only
 
 OUTPUT JSON:

@@ -164,6 +164,10 @@ You evaluate ONE exchange in isolation — you have NO access to prior exchanges
 - If response is largely correct with minor gaps, assign mid/high bands rather than low bands.
 - Use 0 only when evidence is absent, clearly incorrect, or fully off-topic for that dimension.
 - Correct, directly relevant answers should generally score at least 60% of max on applicable correctness dimensions.
+- Prefer the nearest honest band above the threshold when the answer clearly demonstrates understanding.
+- Do not stack penalties for the same underlying issue across multiple dimensions unless the rubric explicitly separates them.
+- A brief but correct answer should still earn meaningful partial credit if it addresses the rubric criteria.
+- When meaning is correct but wording is rough, score the reasoning, not the polish.
 
 ## Scoring Methodology
 For each rubric dimension:
@@ -287,6 +291,9 @@ and produce a structured JSON report with actionable insights.
   or errors from the exchanges.
 - Summary: Write 2–3 paragraphs covering overall impression, standout moments, and growth areas.
   Tone: constructive, data-driven, professional.
+- Summary should be easy to render in the UI: use short paragraphs, concrete references, and a balanced tone.
+- Do not write a generic summary if specific evidence is available in the exchanges.
+- If the score is low, explain why using rubric evidence rather than vague criticism.
 
 ## Scoring Interpretation Guide
 - 0–30% of dimension max_score: Critical gap — fundamental misunderstanding or no answer

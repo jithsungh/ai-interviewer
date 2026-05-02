@@ -938,7 +938,7 @@ class CandidateService:
             data=[ResumeDTO(**r) for r in rows],
         )
 
-    def upload_resume(
+    async def upload_resume(
         self,
         user_id: int,
         file: UploadFile,
@@ -979,7 +979,7 @@ class CandidateService:
         if not file_bytes:
             raise AppValidationError("Uploaded file is empty")
 
-        file_url = self._save_resume_to_local_storage(
+        file_url = await self._save_resume_to_azure_blob(
             user_id=user_id,
             original_filename=filename,
             file_bytes=file_bytes,
@@ -1040,34 +1040,48 @@ class CandidateService:
 
         return ResumeUploadResponse(**row)
 
-    def _save_resume_to_local_storage(
+    async def _save_resume_to_azure_blob(
         self,
         user_id: int,
         original_filename: str,
         file_bytes: bytes,
     ) -> str:
+        """Upload resume to Azure Blob Storage (required).
+        
+        Returns blob path for storage in database.
+        """
+        from azure.storage.blob import BlobClient
+        
+        # Check if Azure Blob Storage is configured
+        if not hasattr(settings, 'azure_storage') or settings.azure_storage is None:
+            raise AppValidationError(
+                "Azure Blob Storage is not configured. Please set AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY in .env"
+            )
+        
+        azure_settings = settings.azure_storage
         suffix = Path(original_filename).suffix.lower() or ".pdf"
-        storage_root = self._resolve_local_storage_root()
-        candidate_dir = storage_root / "resumes" / f"candidate_{user_id}"
-        candidate_dir.mkdir(parents=True, exist_ok=True)
-
+        
+        # Generate unique blob name
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        safe_name = f"{timestamp}_{uuid4().hex[:10]}{suffix}"
-        destination = candidate_dir / safe_name
-
-        destination.write_bytes(file_bytes)
-
-        relative_path = destination.relative_to(storage_root)
-        return f"local://{relative_path.as_posix()}"
-
-    def _resolve_local_storage_root(self) -> Path:
-        configured = settings.app.local_storage_dir if settings else "storage"
-        storage_root = Path(configured)
-        if not storage_root.is_absolute():
-            backend_root = Path(__file__).resolve().parents[3]
-            storage_root = backend_root / storage_root
-        storage_root.mkdir(parents=True, exist_ok=True)
-        return storage_root
+        blob_name = f"resumes/candidate_{user_id}/{timestamp}_{uuid4().hex[:10]}{suffix}"
+        
+        try:
+            # Upload to Azure Blob Storage
+            blob_client = BlobClient(
+                account_url=azure_settings.account_url,
+                container_name=azure_settings.azure_container_resumes,
+                blob_name=blob_name,
+                credential=azure_settings.azure_storage_account_key,
+            )
+            
+            blob_client.upload_blob(file_bytes, overwrite=True)
+            logger.info(f"Uploaded resume {blob_name} for user {user_id}")
+            
+            # Return blob path for storage in database
+            return f"azure://{blob_name}"
+        except Exception as exc:
+            logger.error(f"Failed to upload resume to Azure Blob: {exc}", exc_info=True)
+            raise AppValidationError(f"Failed to upload resume: {str(exc)}")
 
     def _parse_and_extract_resume(
         self,

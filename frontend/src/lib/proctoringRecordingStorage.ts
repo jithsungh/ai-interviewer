@@ -55,3 +55,43 @@ export async function persistScreenRecording(
   db.close();
   return { artifactId, sizeBytes: blob.size };
 }
+
+import { apiClient } from '@/services/apiClient';
+
+export async function uploadPersistedRecording(artifactId: string): Promise<{ artifactId: string; sizeBytes: number; storagePath?: string }> {
+  const db = await openRecordingDb();
+  const record = await new Promise<ScreenRecordingRecord | undefined>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(artifactId);
+    req.onsuccess = () => resolve(req.result as ScreenRecordingRecord | undefined);
+    req.onerror = () => reject(req.error ?? new Error('Failed to read recording'));
+  });
+
+  if (!record) throw new Error('Recording not found');
+
+  const form = new FormData();
+  form.append('recording', record.blob, `${artifactId}.webm`);
+
+  // Use apiClient.postForm to include auth headers
+  const res = await apiClient.postForm<{ artifactId: string; storagePath: string; sizeBytes: number }>(
+    `/proctoring/recordings/${record.submissionId}/upload`,
+    form,
+  );
+
+  db.close();
+  return { artifactId: res.artifactId, sizeBytes: res.sizeBytes, storagePath: res.storagePath };
+}
+
+export async function uploadPersistedRecordingWithRetries(artifactId: string, attempts = 3, delayMs = 2000) {
+  let lastError: unknown = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await uploadPersistedRecording(artifactId);
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, i)));
+    }
+  }
+  throw lastError;
+}

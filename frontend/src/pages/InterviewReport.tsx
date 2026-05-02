@@ -36,9 +36,30 @@ const parseInsightList = (raw?: string): string[] => {
     .filter(Boolean);
 };
 
+const parseSummaryParagraphs = (raw?: string): string[] => {
+  if (!raw) return [];
+
+  return raw
+    .split(/\n\s*\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+};
+
 const toPercentScore = (value: number): number => {
   if (value <= 10) return Number((value * 10).toFixed(1));
   return Number(value.toFixed(1));
+};
+
+const getScoreBand = (score: number) => {
+  if (score >= 85) return { label: 'Outstanding', color: '#059669', background: 'rgba(5,150,105,0.12)' };
+  if (score >= 70) return { label: 'Strong', color: '#0F766E', background: 'rgba(15,118,110,0.12)' };
+  if (score >= 60) return { label: 'Developing', color: '#D97706', background: 'rgba(217,119,6,0.12)' };
+  return { label: 'Needs Focus', color: '#DC2626', background: 'rgba(220,38,38,0.12)' };
+};
+
+const formatRecommendation = (value?: string | null) => {
+  if (!value) return 'review';
+  return value.replace(/_/g, ' ');
 };
 
 const InterviewReport = () => {
@@ -237,6 +258,9 @@ const InterviewReport = () => {
   const strengths = parseInsightList(result?.strengths);
   const weaknesses = parseInsightList(result?.weaknesses);
   const aiSummary = result?.summary_notes?.trim();
+  const summaryParagraphs = parseSummaryParagraphs(aiSummary);
+  const scoreBand = getScoreBand(overallScore);
+  const recommendationLabel = formatRecommendation(result?.recommendation);
   const heroInsight = aiSummary || strengths[0] || 'Detailed insights generated from your answers and reasoning quality.';
   const scoredQuestions = exchanges.filter((exchange) => exchange.evaluation?.total_score != null);
   const latestFeedback = latestResume?.llm_feedback && typeof latestResume.llm_feedback === 'object'
@@ -254,6 +278,7 @@ const InterviewReport = () => {
   const atsIssues = Array.isArray(atsAnalysis?.issues)
     ? (atsAnalysis.issues as string[])
     : [];
+  const sectionScoreEntries = result?.section_scores ? Object.entries(result.section_scores) : [];
 
   return (
     <div style={{ minHeight: '100vh', background: '#FAFAFA' }}>
@@ -311,6 +336,83 @@ const InterviewReport = () => {
             </div>
           </div>
 
+          <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.04)', padding: 24, marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+              <div>
+                <h3 style={{ fontWeight: 700, fontSize: '1.05rem', color: '#09111F', marginBottom: 4 }}>Summary & verdict</h3>
+                <p style={{ color: '#64748B', fontSize: '0.82rem' }}>A concise, evidence-based narrative of the submission.</p>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <Badge style={{ background: scoreBand.background, color: scoreBand.color, border: 'none', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {scoreBand.label}
+                </Badge>
+                <Badge style={{ background: 'rgba(9,17,31,0.08)', color: '#09111F', border: 'none', fontWeight: 800, textTransform: 'capitalize' }}>
+                  {recommendationLabel}
+                </Badge>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+              <div style={{ borderRadius: 14, background: '#F8FAFC', padding: 16, border: '1px solid #EEF2F7' }}>
+                <div style={{ color: '#94A3B8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Headline score</div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: scoreBand.color }}>{overallScore}%</div>
+              </div>
+              <div style={{ borderRadius: 14, background: '#F8FAFC', padding: 16, border: '1px solid #EEF2F7' }}>
+                <div style={{ color: '#94A3B8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Questions scored</div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#09111F' }}>{scoredQuestions.length}/{exchanges.length}</div>
+              </div>
+              <div style={{ borderRadius: 14, background: '#F8FAFC', padding: 16, border: '1px solid #EEF2F7' }}>
+                <div style={{ color: '#94A3B8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Top signal</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#09111F', lineHeight: 1.5 }}>{heroInsight}</div>
+              </div>
+            </div>
+
+            {summaryParagraphs.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+                {summaryParagraphs.map((paragraph, index) => (
+                  <p key={index} style={{ color: '#64748B', lineHeight: 1.75, fontSize: '0.92rem', margin: 0 }}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: '#64748B', lineHeight: 1.75, fontSize: '0.92rem', marginBottom: 18 }}>
+                {heroInsight}
+              </p>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+              <div style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.16)', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: '0.7rem', color: '#166534', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Strengths</div>
+                {strengths.length > 0 ? (
+                  <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {strengths.slice(0, 3).map((item, index) => (
+                      <li key={`summary-strength-${index}`} style={{ fontSize: '0.84rem', color: '#166534', lineHeight: 1.55 }}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ fontSize: '0.84rem', color: '#166534', margin: 0 }}>No explicit strengths were generated yet.</p>
+                )}
+              </div>
+              <div style={{ background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.16)', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: '0.7rem', color: '#92400E', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Growth areas</div>
+                {weaknesses.length > 0 ? (
+                  <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {weaknesses.slice(0, 3).map((item, index) => (
+                      <li key={`summary-weakness-${index}`} style={{ fontSize: '0.84rem', color: '#92400E', lineHeight: 1.55 }}>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ fontSize: '0.84rem', color: '#92400E', margin: 0 }}>No explicit improvement areas were generated yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
             <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.04)', padding: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -355,9 +457,9 @@ const InterviewReport = () => {
 
             <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.04)', padding: 24 }}>
               <h3 style={{ fontWeight: 700, fontSize: '1.15rem', color: '#09111F', marginBottom: 16 }}>Skill Breakdown</h3>
-              {result?.section_scores ? (
+              {sectionScoreEntries.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {Object.entries(result.section_scores).map(([section, score]) => (
+                  {sectionScoreEntries.map(([section, score]) => (
                     <div key={section}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 6 }}>
                         <span style={{ color: '#64748B', textTransform: 'capitalize', fontWeight: 600 }}>{section}</span>
@@ -544,6 +646,11 @@ const InterviewReport = () => {
                               {ds.dimension_name}
                             </div>
                             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#09111F' }}>{toPercentScore(ds.score)}%</div>
+                            {ds.justification && (
+                              <p style={{ marginTop: 8, fontSize: '0.8rem', color: '#64748B', lineHeight: 1.55 }}>
+                                {ds.justification}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>

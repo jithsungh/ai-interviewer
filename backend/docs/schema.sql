@@ -1812,6 +1812,45 @@ ALTER SEQUENCE public.proctoring_events_id_seq OWNER TO jithsungh;
 
 ALTER SEQUENCE public.proctoring_events_id_seq OWNED BY public.proctoring_events.id;
 
+--
+-- Name: proctoring_recordings; Type: TABLE; Schema: public; Owner: jithsungh
+--
+
+CREATE TABLE public.proctoring_recordings (
+    id bigint NOT NULL,
+    interview_submission_id bigint NOT NULL,
+    artifact_id text NOT NULL UNIQUE,
+    storage_path text NOT NULL,
+    mime_type text DEFAULT 'video/webm' NOT NULL,
+    file_size_bytes bigint NOT NULL,
+    upload_started_at timestamp with time zone,
+    upload_completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.proctoring_recordings OWNER TO jithsungh;
+
+--
+-- Name: proctoring_recordings_id_seq; Type: SEQUENCE; Schema: public; Owner: jithsungh
+--
+
+CREATE SEQUENCE public.proctoring_recordings_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.proctoring_recordings_id_seq OWNER TO jithsungh;
+
+--
+-- Name: proctoring_recordings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: jithsungh
+--
+
+ALTER SEQUENCE public.proctoring_recordings_id_seq OWNED BY public.proctoring_recordings.id;
+
 
 --
 -- Name: programming_languages; Type: TABLE; Schema: public; Owner: jithsungh
@@ -2827,6 +2866,13 @@ ALTER TABLE ONLY public.proctoring_events ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: proctoring_recordings id; Type: DEFAULT; Schema: public; Owner: jithsungh
+--
+
+ALTER TABLE ONLY public.proctoring_recordings ALTER COLUMN id SET DEFAULT nextval('public.proctoring_recordings_id_seq'::regclass);
+
+
+--
 -- Name: programming_languages id; Type: DEFAULT; Schema: public; Owner: jithsungh
 --
 
@@ -3268,6 +3314,31 @@ ALTER TABLE ONLY public.problem_language_templates
 
 ALTER TABLE ONLY public.proctoring_events
     ADD CONSTRAINT proctoring_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: proctoring_recordings proctoring_recordings_pkey; Type: CONSTRAINT; Schema: public; Owner: jithsungh
+--
+
+ALTER TABLE ONLY public.proctoring_recordings
+    ADD CONSTRAINT proctoring_recordings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: proctoring_recordings proctoring_recordings_artifact_id_key; Type: CONSTRAINT; Schema: public; Owner: jithsungh
+--
+
+ALTER TABLE ONLY public.proctoring_recordings
+    ADD CONSTRAINT proctoring_recordings_artifact_id_key UNIQUE (artifact_id);
+
+
+--
+-- Name: proctoring_recordings fk_proctoring_recordings_submission; Type: FK CONSTRAINT; Schema: public; Owner: jithsungh
+--
+
+ALTER TABLE ONLY public.proctoring_recordings
+    ADD CONSTRAINT fk_proctoring_recordings_submission FOREIGN KEY (interview_submission_id) 
+    REFERENCES public.interview_submissions(id) ON DELETE CASCADE;
 
 
 --
@@ -4041,6 +4112,13 @@ CREATE INDEX idx_proctoring_events_occurred ON public.proctoring_events USING bt
 --
 
 CREATE INDEX idx_proctoring_events_submission_occurred ON public.proctoring_events USING btree (interview_submission_id, occurred_at);
+
+
+--
+-- Name: idx_proctoring_recordings_submission; Type: INDEX; Schema: public; Owner: jithsungh
+--
+
+CREATE INDEX idx_proctoring_recordings_submission ON public.proctoring_recordings USING btree (interview_submission_id);
 
 
 --

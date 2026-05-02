@@ -83,6 +83,7 @@ from .models import (
     TopicModel,
     WindowRoleTemplateModel,
 )
+from app.admin.domain.audit_service import _serialize_value
 
 logger = logging.getLogger(__name__)
 
@@ -905,14 +906,18 @@ class SqlAuditLogRepository:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
     ) -> None:
+        # Ensure values are JSON-serializable (convert datetimes/enums)
+        old_value_serialized = _serialize_value(old_value) if old_value is not None else None
+        new_value_serialized = _serialize_value(new_value) if new_value is not None else None
+
         model = AuditLogModel(
             organization_id=organization_id,
             actor_user_id=actor_user_id,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
-            old_value=old_value,
-            new_value=new_value,
+            old_value=old_value_serialized,
+            new_value=new_value_serialized,
             ip_address=ip_address,
             user_agent=user_agent,
         )

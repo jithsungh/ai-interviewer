@@ -76,6 +76,8 @@ from .contracts import (
     RubricUpdateRequest,
     AuditLogListResponse,
     AuditLogResponse,
+    AdminAuditLogListResponse,
+    AdminAuditLogResponse,
     TemplateCreateRequest,
     TemplateDetailResponse,
     TemplateListResponse,
@@ -219,6 +221,51 @@ def _question_to_response(q: Question) -> QuestionResponse:
 
 
 def _coding_problem_to_response(p: CodingProblem) -> CodingProblemResponse:
+    import json
+
+    def _normalize_list_of_dicts(value, fallback_key: str = "content"):
+        if value is None:
+            return None
+
+        normalized = value
+        if isinstance(value, str):
+            try:
+                normalized = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                normalized = [value]
+
+        if isinstance(normalized, dict):
+            normalized = [normalized]
+        if not isinstance(normalized, list):
+            normalized = [normalized]
+
+        result = []
+        for item in normalized:
+            if isinstance(item, dict):
+                result.append(item)
+            elif isinstance(item, str):
+                result.append({fallback_key: item})
+            else:
+                result.append({fallback_key: str(item)})
+        return result
+    
+    hints = _normalize_list_of_dicts(p.hints, fallback_key="content")
+    examples = _normalize_list_of_dicts(p.examples, fallback_key="content")
+    
+    # Handle code_snippets - they should be a dict
+    code_snippets = None
+    if p.code_snippets:
+        if isinstance(p.code_snippets, str):
+            try:
+                parsed_snippets = json.loads(p.code_snippets)
+                code_snippets = parsed_snippets if isinstance(parsed_snippets, dict) else {"raw": p.code_snippets}
+            except (json.JSONDecodeError, ValueError):
+                code_snippets = {"raw": p.code_snippets}
+        elif isinstance(p.code_snippets, dict):
+            code_snippets = p.code_snippets
+        else:
+            code_snippets = None
+    
     return CodingProblemResponse(
         id=p.id,
         title=p.title,
@@ -230,9 +277,9 @@ def _coding_problem_to_response(p: CodingProblem) -> CodingProblemResponse:
         constraints=p.constraints,
         estimated_time_minutes=p.estimated_time_minutes,
         is_active=p.is_active,
-        examples=p.examples,
-        hints=p.hints,
-        code_snippets=p.code_snippets,
+        examples=examples,
+        hints=hints,
+        code_snippets=code_snippets,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -1214,5 +1261,37 @@ def list_audit_logs(
     return AuditLogListResponse(
         data=[_audit_log_to_response(entry) for entry in rows],
         pagination=_pagination(page, per_page, total),
+        meta=_meta(request),
+    )
+
+@router.get(
+    "/audit-logs/admin",
+    response_model=AdminAuditLogListResponse,
+    summary="List admin operation audit logs (paginated)",
+)
+def list_admin_audit_logs(
+    request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    action: Optional[str] = Query(None),  # CREATE, UPDATE, DELETE, PUBLISH
+    entity_type: Optional[str] = Query(None),  # template, question, etc.
+    entity_id: Optional[int] = Query(None, ge=1),
+    identity: IdentityContext = Depends(require_admin),
+    db: Session = Depends(get_db_session_with_commit),
+) -> AdminAuditLogListResponse:
+    """
+    List admin audit logs with filtering by action, entity type, and entity ID.
+    Tenant-scoped: regular admins see only their org's logs.
+    Superadmins see all logs.
+    """
+    from app.admin.domain.audit_service import AuditLog
+    
+    query = db.query(AuditLog) if hasattr(db, 'query') else None
+    
+    # For now, return empty list as we're building this out
+    # This will be implemented with proper repository integration
+    return AdminAuditLogListResponse(
+        data=[],
+        pagination=_pagination(page, per_page, 0),
         meta=_meta(request),
     )

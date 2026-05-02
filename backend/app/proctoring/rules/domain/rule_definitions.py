@@ -61,6 +61,7 @@ ALLOWED_EVENT_TYPES: Final[frozenset[str]] = frozenset(
         "screen_recording_persist_failed",
         "screen_share_not_fullscreen",
         "screen_share_ended",
+        "devtools_opened",
         # Face detection events (FR-9.3, FR-9.4)
         "face_absent",
         "multiple_faces",
@@ -119,6 +120,7 @@ DEFAULT_RULES: Final[tuple[ProctoringRule, ...]] = (
     ProctoringRule("screen_recording_persist_failed", "medium", 1.0, "Screen recording persistence failed"),
     ProctoringRule("screen_share_not_fullscreen", "medium", 1.5, "Candidate shared non-fullscreen surface"),
     ProctoringRule("screen_share_ended", "medium", 1.5, "Screen sharing ended during interview"),
+    ProctoringRule("devtools_opened", "high", 3.0, "Developer tools opened during interview"),
     ProctoringRule("background_noise_spike", "medium", 1.5, "Sudden background noise increase"),
     # High severity (3.0)
     ProctoringRule("multiple_faces", "high", 3.0, "Multiple faces detected"),

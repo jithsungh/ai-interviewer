@@ -665,15 +665,15 @@ def list_resumes(
     summary="Upload a resume",
     status_code=201,
 )
-def upload_resume(
+async def upload_resume(
     file: UploadFile = File(..., description="Resume file (pdf, docx)"),
     db: Session = Depends(get_db_session_with_commit),
     identity: IdentityContext = Depends(require_candidate),
 ) -> ResumeUploadResponse:
     """
-    Upload a new resume. Accepted formats: PDF, DOCX.
-    The file is stored in the server's local storage directory and a record is created
+    Upload a new resume to Azure Blob Storage. Accepted formats: PDF, DOCX.
+    The file is stored in Azure Blob Storage and a record is created
     in the resumes table linked to the candidate.
     """
     svc = _build_service(db)
-    return svc.upload_resume(user_id=identity.user_id, file=file)
+    return await svc.upload_resume(user_id=identity.user_id, file=file)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -27,6 +27,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useProctoringMonitor } from '@/hooks/useProctoringMonitor';
 import { persistScreenRecording } from '@/lib/proctoringRecordingStorage';
+import { enqueueRecordingUpload } from '@/lib/recordingUploader';
 import { useToast } from '@/hooks/use-toast';
 import { getCandidateSettings } from '@/services/candidateService';
 import {
@@ -80,6 +81,7 @@ const InterviewSession = () => {
   const [interviewCustomization, setInterviewCustomization] = useState<InterviewCustomization>(DEFAULT_INTERVIEW_CUSTOMIZATION);
   const [screenRecordingState, setScreenRecordingState] = useState<'idle' | 'recording' | 'error' | 'unsupported'>('idle');
   const [screenRecordingError, setScreenRecordingError] = useState<string | null>(null);
+  const [isFullscreenActive, setIsFullscreenActive] = useState<boolean>(Boolean(document.fullscreenElement));
   const shownNoticeIdsRef = useRef<Set<string>>(new Set());
   const screenStreamRef = useRef<MediaStream | null>(null);
   const screenRecorderRef = useRef<MediaRecorder | null>(null);
@@ -185,6 +187,132 @@ const InterviewSession = () => {
     requestNextAfterCodeResult();
   };
 
+  const requestFullscreenMode = useCallback(async () => {
+    if (!document.documentElement.requestFullscreen) {
+      setScreenRecordingError('Fullscreen mode is not supported in this browser.');
+      return false;
+    }
+
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+      setIsFullscreenActive(true);
+      return true;
+    } catch {
+      setScreenRecordingError('Fullscreen is required for this interview. Please enable fullscreen and continue.');
+      return false;
+    }
+  }, []);
+
+  const startScreenRecording = useCallback(async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setScreenRecordingState('unsupported');
+      setScreenRecordingError('Screen recording is not supported in this browser.');
+      reportEvent('screen_recording_unavailable', 'low', 'Screen recording is unavailable in this browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 10 },
+        audio: false,
+      });
+
+      const [videoTrack] = stream.getVideoTracks();
+      const surface = videoTrack?.getSettings?.().displaySurface;
+      if (surface !== 'monitor') {
+        stream.getTracks().forEach((track) => track.stop());
+        setScreenRecordingState('error');
+        setScreenRecordingError('Only full-screen sharing is allowed. Please share the Entire Screen.');
+        reportEvent('screen_share_not_fullscreen', 'medium', 'Screen-share rejected because selected surface was not full-screen monitor.');
+        return;
+      }
+
+      screenStreamRef.current = stream;
+      screenChunksRef.current = [];
+      screenStartedAtRef.current = Date.now();
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+          ? 'video/webm;codecs=vp8'
+          : 'video/webm',
+      });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          screenChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setScreenRecordingState('error');
+        setScreenRecordingError('Screen recording failed during capture.');
+        reportEvent('screen_recording_error', 'medium', 'Screen recording failed during capture.');
+      };
+
+      recorder.onstop = async () => {
+        const submissionForPersist = effectiveSubmissionId;
+        const durationMs = screenStartedAtRef.current ? Date.now() - screenStartedAtRef.current : 0;
+        const blob = new Blob(screenChunksRef.current, { type: 'video/webm' });
+
+        if (submissionForPersist && blob.size > 0) {
+          try {
+            const { artifactId, sizeBytes } = await persistScreenRecording(submissionForPersist, blob);
+            reportEvent('screen_recording_persisted', 'low', 'Screen recording artifact persisted.', {
+              artifact_id: artifactId,
+              size_bytes: sizeBytes,
+              duration_ms: durationMs,
+            });
+
+            enqueueRecordingUpload(artifactId);
+          } catch {
+            reportEvent('screen_recording_persist_failed', 'medium', 'Screen recording artifact persistence failed.', {
+              size_bytes: blob.size,
+              duration_ms: durationMs,
+            });
+          }
+        }
+
+        reportEvent('screen_recording_stopped', 'low', 'Screen recording stopped.', {
+          duration_ms: durationMs,
+          size_bytes: blob.size,
+        });
+
+        if (screenStreamRef.current) {
+          screenStreamRef.current.getTracks().forEach((track) => track.stop());
+        }
+        screenChunksRef.current = [];
+        screenStartedAtRef.current = null;
+        screenStreamRef.current = null;
+        screenRecorderRef.current = null;
+        setScreenRecordingState('idle');
+      };
+
+      stream.getVideoTracks().forEach((track) => {
+        track.onended = () => {
+          setScreenRecordingError('Screen sharing stopped. Interview continues, but please re-share full screen to maintain proctoring compliance.');
+          reportEvent('screen_share_ended', 'medium', 'Screen sharing ended during interview.');
+          if (screenRecorderRef.current?.state === 'recording') {
+            screenRecorderRef.current.stop();
+          }
+        };
+      });
+
+      screenRecorderRef.current = recorder;
+      recorder.start(3000);
+      setScreenRecordingError(null);
+      setScreenRecordingState('recording');
+      reportEvent('screen_recording_started', 'low', 'Screen recording started for proctoring.');
+    } catch (error) {
+      setScreenRecordingState('error');
+      setScreenRecordingError('Screen recording permission denied or unavailable. Click "Enable Screen Sharing" to try again.');
+      reportEvent('screen_recording_denied', 'medium', 'Screen recording permission denied or unavailable.', {
+        error: error instanceof Error ? error.message : 'unknown_error',
+      });
+    }
+  }, [effectiveSubmissionId, reportEvent]);
+
   useEffect(() => {
     if (!effectiveSubmissionId) return;
     try {
@@ -249,6 +377,42 @@ const InterviewSession = () => {
   }, [consentStorageKey]);
 
   useEffect(() => {
+    if (!isInterviewActive) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isInterviewActive]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = Boolean(document.fullscreenElement);
+      setIsFullscreenActive(active);
+
+      if (!active && isInterviewActive && consentData?.screenRecording) {
+        reportEvent('window_focus_lost', 'medium', 'Fullscreen mode exited during interview.');
+        setScreenRecordingError('Fullscreen mode exited. Please re-enter fullscreen to maintain interview integrity.');
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [consentData?.screenRecording, isInterviewActive, reportEvent]);
+
+  useEffect(() => {
+    if (!isInterviewActive || !consentData?.screenRecording) return;
+    void requestFullscreenMode();
+  }, [consentData?.screenRecording, isInterviewActive, requestFullscreenMode]);
+
+  useEffect(() => {
     const shouldRecordScreen = Boolean(consentData?.screenRecording) && Boolean(effectiveSubmissionId) && isInterviewActive;
     if (!shouldRecordScreen) {
       return;
@@ -256,113 +420,9 @@ const InterviewSession = () => {
     if (screenRecorderRef.current || screenStreamRef.current) {
       return;
     }
-
-    let cancelled = false;
-
-    const startScreenRecording = async () => {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        setScreenRecordingState('unsupported');
-        setScreenRecordingError('Screen recording is not supported in this browser.');
-        reportEvent('screen_recording_unavailable', 'low', 'Screen recording is unavailable in this browser.');
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: 10 },
-          audio: false,
-        });
-
-        const [videoTrack] = stream.getVideoTracks();
-        const surface = videoTrack?.getSettings?.().displaySurface;
-        if (surface !== 'monitor') {
-          stream.getTracks().forEach((track) => track.stop());
-          setScreenRecordingState('error');
-          setScreenRecordingError('Only full-screen sharing is allowed. Please share the Entire Screen.');
-          reportEvent('screen_share_not_fullscreen', 'medium', 'Screen-share rejected because selected surface was not full-screen monitor.');
-          return;
-        }
-
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        screenStreamRef.current = stream;
-        screenChunksRef.current = [];
-        screenStartedAtRef.current = Date.now();
-
-        const recorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-            ? 'video/webm;codecs=vp8'
-            : 'video/webm',
-        });
-
-        recorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            screenChunksRef.current.push(event.data);
-          }
-        };
-
-        recorder.onerror = () => {
-          setScreenRecordingState('error');
-          setScreenRecordingError('Screen recording failed during capture.');
-          reportEvent('screen_recording_error', 'medium', 'Screen recording failed during capture.');
-        };
-
-        recorder.onstop = async () => {
-          const submissionForPersist = effectiveSubmissionId;
-          const durationMs = screenStartedAtRef.current ? Date.now() - screenStartedAtRef.current : 0;
-          const blob = new Blob(screenChunksRef.current, { type: 'video/webm' });
-
-          if (submissionForPersist && blob.size > 0) {
-            try {
-              const { artifactId, sizeBytes } = await persistScreenRecording(submissionForPersist, blob);
-              reportEvent('screen_recording_persisted', 'low', 'Screen recording artifact persisted.', {
-                artifact_id: artifactId,
-                size_bytes: sizeBytes,
-                duration_ms: durationMs,
-              });
-            } catch {
-              reportEvent('screen_recording_persist_failed', 'medium', 'Screen recording artifact persistence failed.', {
-                size_bytes: blob.size,
-                duration_ms: durationMs,
-              });
-            }
-          }
-
-          screenChunksRef.current = [];
-          setScreenRecordingState('idle');
-        };
-
-        stream.getVideoTracks().forEach((track) => {
-          track.onended = () => {
-            setScreenRecordingError('Screen sharing stopped. Interview continues, but please re-share full screen to maintain proctoring compliance.');
-            reportEvent('screen_share_ended', 'medium', 'Screen sharing ended during interview.');
-            if (screenRecorderRef.current?.state === 'recording') {
-              screenRecorderRef.current.stop();
-            }
-          };
-        });
-
-        screenRecorderRef.current = recorder;
-        recorder.start(3000);
-        setScreenRecordingError(null);
-        setScreenRecordingState('recording');
-        reportEvent('screen_recording_started', 'low', 'Screen recording started for proctoring.');
-      } catch (error) {
-        setScreenRecordingState('error');
-        setScreenRecordingError('Screen recording permission denied or unavailable.');
-        reportEvent('screen_recording_denied', 'medium', 'Screen recording permission denied or unavailable.', {
-          error: error instanceof Error ? error.message : 'unknown_error',
-        });
-      }
-    };
-
-    startScreenRecording();
+    void startScreenRecording();
 
     return () => {
-      cancelled = true;
       if (screenRecorderRef.current && screenRecorderRef.current.state !== 'inactive') {
         try {
           screenRecorderRef.current.stop();
@@ -375,7 +435,7 @@ const InterviewSession = () => {
       screenRecorderRef.current = null;
       screenStreamRef.current = null;
     };
-  }, [consentData?.screenRecording, effectiveSubmissionId, isInterviewActive, reportEvent]);
+  }, [consentData?.screenRecording, effectiveSubmissionId, isInterviewActive, startScreenRecording]);
 
   // Consent Phase
   if (state.phase === 'consent') {
@@ -499,75 +559,118 @@ const InterviewSession = () => {
   return (
     <div className="new-frontend-theme min-h-screen bg-[var(--surface)] flex flex-col" style={interviewThemeVars}>
       {/* Header */}
-      <header className="h-14 border-b border-[var(--border)] flex items-center justify-between px-4 bg-[var(--card)]">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
+      <header className="border-b border-[var(--border)] bg-[var(--card)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--card)]/90">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-3 lg:px-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full gradient-primary shadow-glow">
+                <Sparkles className="h-4 w-4 text-primary-foreground" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold tracking-tight text-[var(--primary)]">InterviewAI</span>
+                  <Badge variant="secondary" className="rounded-full px-2.5 py-0.5 text-[11px] uppercase tracking-[0.08em]">
+                    Coding Challenge
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Live interview session · question {state.currentSequence} of {state.totalQuestions}
+                </p>
+              </div>
             </div>
-            <span className="font-semibold">InterviewAI</span>
-          </div>
-          <Badge variant="secondary">Coding Challenge</Badge>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Question</span>
-            <span className="font-semibold">{state.currentSequence}/{state.totalQuestions}</span>
-          </div>
-          
-          {state.timeRemainingSeconds != null && (
-            <div className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full",
-              state.timeRemainingSeconds < 60 ? "bg-destructive/10 text-destructive" : "bg-muted"
-            )}>
-              <Clock className="w-4 h-4" />
-              <span className="font-mono font-semibold">{formatTime(state.timeRemainingSeconds)}</span>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <Badge className="rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--primary)]">
+                Question {state.currentSequence}/{state.totalQuestions}
+              </Badge>
+
+              {state.timeRemainingSeconds != null && (
+                <div className={cn(
+                  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold',
+                  state.timeRemainingSeconds < 60 ? 'bg-destructive/10 text-destructive' : 'bg-[var(--surface)] text-[var(--primary)]'
+                )}>
+                  <Clock className="h-4 w-4" />
+                  <span className="font-mono">{formatTime(state.timeRemainingSeconds)}</span>
+                </div>
+              )}
+
+              <NetworkStatusBadge />
+
+              <Badge
+                className={cn(
+                  'rounded-full border-0 px-3 py-1.5',
+                  integrityLevel === 'good' && 'bg-emerald-500/15 text-emerald-700',
+                  integrityLevel === 'warning' && 'bg-amber-500/15 text-amber-700',
+                  integrityLevel === 'critical' && 'bg-rose-500/15 text-rose-700',
+                )}
+              >
+                {integrityLevel === 'good' ? <ShieldCheck className="mr-1 h-3.5 w-3.5" /> : <ShieldAlert className="mr-1 h-3.5 w-3.5" />}
+                Integrity {integrityLevel.toUpperCase()}
+              </Badge>
+
+              {consentData?.screenRecording && (
+                <Badge className={cn('rounded-full border-0 px-3 py-1.5', screenRecordingState === 'recording' ? 'bg-blue-500/15 text-blue-700' : 'bg-muted text-muted-foreground')}>
+                  <Monitor className="mr-1 h-3.5 w-3.5" />
+                  {screenRecordingState === 'recording' ? 'Screen Rec On' : 'Screen Rec Off'}
+                </Badge>
+              )}
             </div>
-          )}
+          </div>
 
-          <NetworkStatusBadge />
-          <Badge
-            className={cn(
-              'border-0',
-              integrityLevel === 'good' && 'bg-emerald-500/15 text-emerald-700',
-              integrityLevel === 'warning' && 'bg-amber-500/15 text-amber-700',
-              integrityLevel === 'critical' && 'bg-rose-500/15 text-rose-700',
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {isInterviewActive && (
+              <Badge variant="outline" className="rounded-full border-[var(--border)] bg-[var(--surface)] text-[var(--primary)]">
+                Focus {focusLossCount}
+              </Badge>
             )}
-          >
-            {integrityLevel === 'good' ? <ShieldCheck className="mr-1 h-3.5 w-3.5" /> : <ShieldAlert className="mr-1 h-3.5 w-3.5" />}
-            Integrity {integrityLevel.toUpperCase()}
-          </Badge>
-          {consentData?.screenRecording && (
-            <Badge className={cn('border-0', screenRecordingState === 'recording' ? 'bg-blue-500/15 text-blue-700' : 'bg-muted text-muted-foreground')}>
-              <Monitor className="mr-1 h-3.5 w-3.5" />
-              {screenRecordingState === 'recording' ? 'Screen Rec On' : 'Screen Rec Off'}
-            </Badge>
-          )}
+            {isInterviewActive && (
+              <Badge variant="outline" className="rounded-full border-[var(--border)] bg-[var(--surface)] text-[var(--primary)]">
+                Tabs {tabSwitchCount}
+              </Badge>
+            )}
+            {consentData?.screenRecording && screenRecordingError && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">
+                {screenRecordingError}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => setIsMuted(!isMuted)}
-          >
-            {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => setIsVideoOn(!isVideoOn)}
-          >
-            {isVideoOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-          </Button>
-          <Button 
-            variant="destructive" 
-            size="sm"
-            onClick={() => setShowEndDialog(true)}
-          >
-            End Interview
-          </Button>
+        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 lg:px-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setIsMuted(!isMuted)}
+              className="border border-[var(--border)] bg-[var(--surface)] shadow-sm"
+            >
+              {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setIsVideoOn(!isVideoOn)}
+              className="border border-[var(--border)] bg-[var(--surface)] shadow-sm"
+            >
+              {isVideoOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+            </Button>
+            <Button 
+              variant="destructive" 
+              size="sm"
+              onClick={() => setShowEndDialog(true)}
+              className="shadow-sm"
+            >
+              End Interview
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            {isInterviewActive ? (
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-700">Interview active</span>
+            ) : (
+              <span className="rounded-full bg-muted px-3 py-1">Session in transition</span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -575,6 +678,32 @@ const InterviewSession = () => {
       <div className="h-1">
         <Progress value={state.progress} className="h-full rounded-none" />
       </div>
+
+      {consentData?.screenRecording && screenRecordingState !== 'recording' && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-amber-900">Screen sharing is required</p>
+              <p className="text-sm text-amber-800">
+                Enable fullscreen, then share Entire Screen in the browser picker.
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  const fullscreenReady = await requestFullscreenMode();
+                  if (!fullscreenReady) return;
+                  await startScreenRecording();
+                })();
+              }}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {isFullscreenActive ? 'Enable Screen Sharing' : 'Enable Fullscreen + Screen Sharing'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex">

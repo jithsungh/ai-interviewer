@@ -51,3 +51,27 @@ class ProctoringEventModel(Base):
             f"<ProctoringEvent id={self.id} type={self.event_type!r} "
             f"severity={self.severity!r}>"
         )
+
+
+class ProctoringRecordingModel(Base):
+    """ORM model for persisted screen recording artifacts."""
+
+    __tablename__ = "proctoring_recordings"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    interview_submission_id = Column(
+        BigInteger,
+        ForeignKey("interview_submissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    artifact_id = Column(Text, nullable=False, unique=True)
+    storage_path = Column(Text, nullable=False)
+    mime_type = Column(Text, nullable=False, server_default=text("'video/webm'"))
+    file_size_bytes = Column(BigInteger, nullable=False)
+    upload_started_at = Column(DateTime(timezone=True), nullable=True)
+    upload_completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    def __repr__(self) -> str:
+        return f"<ProctoringRecording id={self.id} artifact={self.artifact_id!r}>"

@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => ({
     },
     allowedHosts: [
       "ai-interviewer.centralindia.cloudapp.azure.com",
+      "fulsome-unmonopolising-mariela.ngrok-free.dev",
       "localhost",
     ],
   },
@@ -22,6 +23,8 @@ export default defineConfig(({ mode }) => ({
     allowedHosts: [
       "ai-interviewer.centralindia.cloudapp.azure.com",
       "localhost",
+      "fulsome-unmonopolising-mariela.ngrok-free.dev",
+
     ],
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

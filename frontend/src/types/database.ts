@@ -48,7 +48,8 @@ export type ProctoringEventType =
   | 'screen_recording_persisted'
   | 'screen_recording_persist_failed'
   | 'screen_share_not_fullscreen'
-  | 'screen_share_ended';
+  | 'screen_share_ended'
+  | 'devtools_opened';
 export type ProctoringRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type ReportType = 'candidate_summary' | 'technical_breakdown' | 'behavioral_analysis' | 'proctoring_risk';
 export type EvaluatorType = 'ai' | 'human' | 'hybrid';
