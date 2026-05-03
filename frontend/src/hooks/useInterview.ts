@@ -403,6 +403,17 @@ export function useInterview(submissionId: number | null) {
           return;
         }
 
+        if (status === 'pending') {
+          if (detail.session.consent_captured) {
+            setState(prev => ({ ...prev, submissionId, phase: 'connecting', error: null }));
+            void startSession(true);
+            return;
+          }
+
+          setState(prev => ({ ...prev, submissionId, phase: 'consent', error: null }));
+          return;
+        }
+
         setState(prev => ({
           ...prev,
           phase: 'expired',
@@ -427,7 +438,7 @@ export function useInterview(submissionId: number | null) {
     };
 
     restore();
-  }, [submissionId, connectInterview]);
+  }, [submissionId, connectInterview, startSession]);
 
   // ---- Actions ----
 
