@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import settings
+from app.config import settings, env_config, cors_config
 from app.shared.observability import get_context_logger
 from app.shared.auth_context.middleware import IdentityInjectionMiddleware
 from app.shared.auth_context.dependencies import get_token_validator
@@ -208,7 +208,9 @@ def register_middleware(app: FastAPI) -> None:
     app.add_middleware(RequestContextMiddleware)
     logger.debug("✓ RequestContextMiddleware registered")
     
-    allowed_origins = ["*"]  # Allow all origins in development
+    allowed_origins = ["*"]  # Allow all origins when strict CORS is disabled
+    if env_config and cors_config and env_config.strict_cors:
+        allowed_origins = cors_config.allow_origins
     
     # 1. CORS (MUST be first! Added last so it executes first)
     app.add_middleware(
