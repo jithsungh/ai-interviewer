@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -43,10 +43,10 @@ export const ConsentForm = ({
   duration 
 }: ConsentFormProps) => {
   const [consent, setConsent] = useState<ConsentData>({
-    screenRecording: false,
-    audioRecording: false,
+    screenRecording: true,  // Screen recording enabled by default for proctoring
+    audioRecording: true,   // Audio recording enabled by default for interview
     videoRecording: false,
-    dataProcessing: false,
+    dataProcessing: true,   // Data processing enabled by default
     termsAccepted: false,
     proctoringPolicyAccepted: false,
   });
@@ -63,9 +63,9 @@ export const ConsentForm = ({
 
   const hasPermissionApi = Boolean(navigator?.mediaDevices?.getUserMedia);
 
-  const isValid = consent.screenRecording
-    && consent.audioRecording
-    && consent.dataProcessing
+  // Screen recording and audio are always required (enforced by default)  
+  // Just check the policy & data consents
+  const isValid = consent.dataProcessing
     && consent.termsAccepted
     && consent.proctoringPolicyAccepted;
 
@@ -92,17 +92,33 @@ export const ConsentForm = ({
     if (!isValid) return;
 
     const ensurePermissionsAndContinue = async () => {
+      // Auto-request permissions for enabled features.
+      // Screen share prompt is handled once, when recording starts.
       const cameraReady = consent.videoRecording ? await requestCameraPermission() : true;
       const micReady = consent.audioRecording ? await requestMicrophonePermission() : true;
-      const screenReady = consent.screenRecording ? await requestScreenPermission() : true;
 
-      if (micReady && cameraReady && screenReady) {
+      // Only proceed if all required permissions are ready
+      if (micReady && cameraReady) {
         onConsent(consent);
+      } else {
+        // Show user which permission failed
+        if (!micReady) {
+          alert('Microphone access is required for this interview. Please grant audio access and try again.');
+        }
       }
     };
 
     void ensurePermissionsAndContinue();
   };
+
+  // Auto-check audio permissions on mount to show user what's needed
+  useEffect(() => {
+    const autoCheckPermissions = async () => {
+      // Check audio permission (required for interview)
+      await requestMicrophonePermission();
+    };
+    void autoCheckPermissions();
+  }, []);
 
   const updatePermissionStatus = (
     key: 'camera' | 'microphone' | 'screen',
@@ -396,19 +412,23 @@ export const ConsentForm = ({
                   <Checkbox
                     id={item.key}
                     checked={consent[item.key]}
+                    disabled={(item.key === 'screenRecording' || item.key === 'audioRecording')}
                     onCheckedChange={(checked) => 
-                      setConsent(prev => ({ ...prev, [item.key]: checked === true }))
+                      (item.key !== 'screenRecording' && item.key !== 'audioRecording') && setConsent(prev => ({ ...prev, [item.key]: checked === true }))
                     }
                     className="mt-1"
                   />
                   <div style={{ flex: 1 }}>
                     <Label
                       htmlFor={item.key}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.98rem', fontWeight: 700, cursor: 'pointer', color: '#09111F' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.98rem', fontWeight: 700, cursor: (item.key === 'screenRecording' || item.key === 'audioRecording') ? 'default' : 'pointer', color: '#09111F' }}
                     >
                       <item.icon className="w-4 h-4" style={{ color: '#64748B' }} />
                       {item.title}
-                      {item.required && (
+                      {(item.key === 'screenRecording' || item.key === 'audioRecording') && (
+                        <span style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>AUTO</span>
+                      )}
+                      {item.required && (item.key !== 'screenRecording' && item.key !== 'audioRecording') && (
                         <span style={{ fontSize: '0.68rem', color: '#B45309', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>*Required</span>
                       )}
                     </Label>

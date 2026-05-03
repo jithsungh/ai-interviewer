@@ -75,6 +75,24 @@ class ReviewQueueResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════
+# Live monitoring sessions
+# ════════════════════════════════════════════════════════════════════════
+
+
+class MonitoringSessionItem(ReviewQueueItem):
+    """Single item in the live monitoring sessions list."""
+
+
+class MonitoringSessionsResponse(BaseModel):
+    """Paginated live monitoring sessions response."""
+
+    total: int = Field(..., ge=0)
+    items: List[MonitoringSessionItem] = Field(default_factory=list)
+    limit: int = Field(default=50)
+    offset: int = Field(default=0)
+
+
+# ════════════════════════════════════════════════════════════════════════
 # Proctoring event response (read-only)
 # ════════════════════════════════════════════════════════════════════════
 

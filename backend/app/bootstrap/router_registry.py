@@ -159,6 +159,18 @@ def register_routers(app: FastAPI) -> None:
         logger.debug("✓ Proctoring recording router registered")
     except Exception:
         logger.debug("Proctoring recording router not available yet")
+
+    # Proctoring Signaling Sub-Module (WebSocket stub)
+    try:
+        from app.proctoring.signaling.api.routes import router as proctoring_signaling_router
+        app.include_router(
+            proctoring_signaling_router,
+            prefix=f"{api_prefix}",
+            tags=["Proctoring"],
+        )
+        logger.debug("✓ Proctoring signaling router registered")
+    except Exception:
+        logger.debug("Proctoring signaling router not available yet")
     
     # Audio Ingestion Module
     from app.audio.ingestion.api.routes import router as audio_ingestion_router

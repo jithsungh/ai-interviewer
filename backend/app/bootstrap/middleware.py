@@ -17,16 +17,36 @@ import uuid
 from typing import Callable
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import settings, env_config, cors_config
+from app.config import settings
 from app.shared.observability import get_context_logger
 from app.shared.auth_context.middleware import IdentityInjectionMiddleware
 from app.shared.auth_context.dependencies import get_token_validator
 
 logger = get_context_logger(__name__)
+
+
+def _no_response_fallback(request: Request, request_id: str, stage: str) -> Response:
+    logger.warning(
+        f"{stage}: caught 'No response returned' from downstream handler",
+        metadata={"request_id": request_id, "path": request.url.path},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "http_500",
+                "message": "Internal Server Error",
+                "request_id": request_id,
+                "metadata": {},
+            }
+        },
+        headers={"X-Request-ID": request_id},
+    )
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -51,7 +71,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request.state.organization_id = None
         
         # Process request
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except RuntimeError as exc:
+            if str(exc) == "No response returned.":
+                return _no_response_fallback(request, request_id, "RequestContextMiddleware")
+            raise
         
         # Add request ID to response headers
         response.headers["X-Request-ID"] = request_id
@@ -77,7 +102,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         start_time = getattr(request.state, "request_start_time", time.perf_counter())
         
         # Process request
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except RuntimeError as exc:
+            request_id = getattr(request.state, "request_id", "unknown")
+            if str(exc) == "No response returned.":
+                return _no_response_fallback(request, request_id, "LoggingMiddleware")
+            raise
         
         # Calculate latency
         latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -114,20 +145,26 @@ class ErrorFormattingMiddleware(BaseHTTPMiddleware):
     """
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        from fastapi.responses import JSONResponse
-        
-        response = await call_next(request)
+        request_id = getattr(request.state, "request_id", "unknown")
+
+        try:
+            response = await call_next(request)
+        except RuntimeError as exc:
+            if str(exc) == "No response returned.":
+                return _no_response_fallback(request, request_id, "ErrorFormattingMiddleware")
+            raise
         
         # Reformat 404 responses to match structured error format
         if response.status_code == 404:
-            request_id = getattr(request.state, "request_id", "unknown")
-            # Copy headers but drop Content-Length — JSONResponse will
-            # set the correct value for the new body.  Carrying over the
-            # original Content-Length causes uvicorn to raise
-            # "Response content longer than Content-Length".
+            # Copy headers but drop headers that describe the original
+            # payload size/encoding. Forwarding these can confuse clients
+            # when we replace the body (for example a stale
+            # Content-Encoding header causes Chrome to attempt to
+            # decompress an uncompressed payload and fail with
+            # ERR_CONTENT_DECODING_FAILED).
             forwarded_headers = {
                 k: v for k, v in response.headers.items()
-                if k.lower() != "content-length"
+                if k.lower() not in ("content-length", "content-encoding", "transfer-encoding")
             }
             return JSONResponse(
                 status_code=404,
@@ -160,7 +197,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # TODO: Implement rate limiting logic
         # For now, pass through
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except RuntimeError as exc:
+            request_id = getattr(request.state, "request_id", "unknown")
+            if str(exc) == "No response returned.":
+                return _no_response_fallback(request, request_id, "RateLimitMiddleware")
+            raise
         return response
 
 
@@ -208,22 +251,77 @@ def register_middleware(app: FastAPI) -> None:
     app.add_middleware(RequestContextMiddleware)
     logger.debug("✓ RequestContextMiddleware registered")
     
-    allowed_origins = ["*"]  # Allow all origins when strict CORS is disabled
-    if env_config and cors_config and env_config.strict_cors:
-        allowed_origins = cors_config.allow_origins
+    # Determine allowed origins. Avoid wildcard when using credentials.
+    allowed_origins = [
+        settings.app.base_url or "",
+        "http://localhost:8081",
+        "http://localhost:8082",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:8081",
+        "http://127.0.0.1:8082",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
     
+    # In development, allow all ngrok URLs (*.ngrok*.dev, *.ngrok.io, etc.)
+    if settings.app.app_env == "dev":
+        allowed_origins.extend([
+            "https://localhost:8081",
+            "http://localhost:8082",
+            "https://localhost:3000",
+            "https://localhost:5173",
+        ])
+        # For ngrok support: allow any ngrok domain since URLs are temporary in dev
+        # This is safe in dev-only mode
+        allow_all_ngrok = True
+    else:
+        allow_all_ngrok = False
+    
+    # Deduplicate and filter empty values
+    allowed_origins = list({o for o in allowed_origins if o})
+    
+    logger.debug(f"CORS allowed origins: {allowed_origins}, allow_all_ngrok={allow_all_ngrok}")
+
     # 1. CORS (MUST be first! Added last so it executes first)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["*"],
-        expose_headers=["X-Request-ID", "Content-Type"],
-        max_age=3600,
-    )
-    logger.debug("✓ CORSMiddleware registered (FIRST to execute)")
-    
+    if allow_all_ngrok:
+        # In development, use a more permissive CORS setup to support ngrok tunneling
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://localhost:8081",
+                "http://localhost:8082",
+                "http://127.0.0.1:8081",
+                "http://127.0.0.1:8082",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "https://localhost:8081",
+                "https://localhost:8082",
+                "https://localhost:3000",
+                "https://localhost:5173",
+            ],
+            allow_origin_regex=r"https?://.*\.ngrok.*\.dev.*|https?://.*\.ngrok\.io.*",
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID", "Content-Type"],
+            max_age=3600,
+        )
+        logger.debug("✓ CORSMiddleware registered with ngrok support (FIRST to execute)")
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID", "Content-Type"],
+            max_age=3600,
+        )
+        logger.debug("✓ CORSMiddleware registered (FIRST to execute)")
+
     logger.info(
         "✅ Middleware registration complete",
         event_type="middleware.registration.complete",

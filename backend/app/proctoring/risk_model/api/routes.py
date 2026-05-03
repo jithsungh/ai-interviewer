@@ -28,6 +28,8 @@ from app.bootstrap.dependencies import (
 from app.persistence.redis import get_redis_client
 from app.proctoring.persistence.repository import ProctoringEventRepository
 from app.proctoring.risk_model.contracts.schemas import (
+    MonitoringSessionItem,
+    MonitoringSessionsResponse,
     ProctoringEventResponse,
     ReviewQueueItem,
     ReviewQueueResponse,
@@ -208,6 +210,75 @@ async def get_review_queue(
         )
 
     return ReviewQueueResponse(
+        total=count_result,
+        items=items,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Live Monitoring Sessions
+# ════════════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/monitoring-sessions",
+    response_model=MonitoringSessionsResponse,
+    summary="Live monitoring sessions",
+    description="Returns in-progress submissions with proctoring status. Admin only.",
+)
+async def get_monitoring_sessions(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_db_session),
+    identity: IdentityContext = Depends(require_admin),
+) -> MonitoringSessionsResponse:
+    """
+    List in-progress submissions for live monitoring.
+
+    Includes proctoring risk and flag state for alert filtering.
+    """
+    count_result = session.execute(
+        sql_text(
+            "SELECT COUNT(*) FROM interview_submissions WHERE status = 'in_progress'"
+        )
+    ).scalar() or 0
+
+    rows = session.execute(
+        sql_text(
+            """
+            SELECT
+                id AS submission_id,
+                COALESCE(proctoring_risk_score, 0) AS total_risk,
+                COALESCE(proctoring_risk_classification, 'low') AS classification,
+                COALESCE(proctoring_flagged, FALSE) AS flagged,
+                COALESCE(proctoring_reviewed, FALSE) AS reviewed
+            FROM interview_submissions
+            WHERE status = 'in_progress'
+            ORDER BY started_at DESC NULLS LAST, id DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        {"limit": limit, "offset": offset},
+    ).fetchall()
+
+    repo = ProctoringEventRepository(session)
+    items: list[MonitoringSessionItem] = []
+    for row in rows:
+        event_count = repo.count_by_submission(row.submission_id)
+        items.append(
+            MonitoringSessionItem(
+                submission_id=row.submission_id,
+                total_risk=float(row.total_risk),
+                classification=row.classification,
+                event_count=event_count,
+                flagged=bool(row.flagged),
+                reviewed=bool(row.reviewed),
+            )
+        )
+
+    return MonitoringSessionsResponse(
         total=count_result,
         items=items,
         limit=limit,

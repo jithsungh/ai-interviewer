@@ -172,11 +172,15 @@ async def get_latest_recording(
         session.query(ProctoringRecordingModel)
         .filter(ProctoringRecordingModel.interview_submission_id == submission_id)
         .order_by(desc(ProctoringRecordingModel.created_at), desc(ProctoringRecordingModel.id))
-        .one_or_none()
+        .first()
     )
 
     if not rec:
-        return {"error": "recording_not_found"}
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=404,
+            content={"error": "recording_not_found", "message": "No recording available for this submission yet."}
+        )
 
     return {
         "artifact_id": rec.artifact_id,
