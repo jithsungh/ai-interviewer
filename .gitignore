@@ -1,8 +1,9 @@
 new-frontend
+node-modules
+.venv
 
 */.env
 
-admin_ui
 pend*
 wrong*
 *md
