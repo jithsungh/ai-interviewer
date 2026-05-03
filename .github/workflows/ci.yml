@@ -79,11 +79,12 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
 
           script: |
-            cd ~/ai_interviewer
+            cd ~/ai-interviewer
             
             git pull origin main
 
             echo "Updating backend"
+            cd backend
             source .venv/bin/activate
             pip install -r requirements.txt
             sudo systemctl restart interviewer-backend

@@ -944,7 +944,7 @@ export const SpeakingQuestion = ({
                   </Badge>
                 </div>
 
-                <div className="mb-3 grid grid-cols-2 gap-2">
+                {/* <div className="mb-3 grid grid-cols-2 gap-2">
                   <div className="rounded-xl border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-3 py-2">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[rgba(255,255,255,0.6)]">Eye Contact</p>
                     <div className="mt-1 flex items-center justify-between text-xs text-white">
@@ -963,7 +963,7 @@ export const SpeakingQuestion = ({
                       </span>
                     </div>
                   </div>
-                </div>
+                </div> */}
 
                 <div className="relative h-[calc(100%-2.2rem)] min-h-[260px] overflow-hidden rounded-[18px] border border-[rgba(255,255,255,0.14)] bg-[rgba(2,12,28,0.72)]">
                   {cameraReady ? (
