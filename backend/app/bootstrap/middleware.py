@@ -263,6 +263,20 @@ def register_middleware(app: FastAPI) -> None:
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ]
+
+    # Allow configured hosts (ALLOWED_HOSTS) as full origins.
+    # If a host is provided without scheme, expand to https in prod or both in dev/staging.
+    additional_origins = []
+    for host in settings.security.allowed_hosts:
+        if not host:
+            continue
+        if host.startswith("http://") or host.startswith("https://"):
+            additional_origins.append(host)
+        elif settings.app.app_env == "prod":
+            additional_origins.append(f"https://{host}")
+        else:
+            additional_origins.extend([f"http://{host}", f"https://{host}"])
+    allowed_origins.extend(additional_origins)
     
     # In development, allow all ngrok URLs (*.ngrok*.dev, *.ngrok.io, etc.)
     if settings.app.app_env == "dev":
