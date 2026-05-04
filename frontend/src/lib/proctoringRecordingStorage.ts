@@ -8,6 +8,7 @@ interface ScreenRecordingRecord {
   createdAt: string;
   mimeType: string;
   sizeBytes: number;
+  durationMs?: number;
   blob: Blob;
 }
 
@@ -32,6 +33,7 @@ function openRecordingDb(): Promise<IDBDatabase> {
 export async function persistScreenRecording(
   submissionId: number,
   blob: Blob,
+  durationMs?: number,
 ): Promise<{ artifactId: string; sizeBytes: number }> {
   const db = await openRecordingDb();
   const artifactId = `${submissionId}-${Date.now()}`;
@@ -41,6 +43,7 @@ export async function persistScreenRecording(
     createdAt: new Date().toISOString(),
     mimeType: blob.type || 'video/webm',
     sizeBytes: blob.size,
+    durationMs,
     blob,
   };
 
@@ -72,9 +75,12 @@ export async function uploadPersistedRecording(artifactId: string): Promise<{ ar
 
   const form = new FormData();
   form.append('recording', record.blob, `${artifactId}.webm`);
+  if (typeof record.durationMs === 'number') {
+    form.append('duration_ms', String(record.durationMs));
+  }
 
   // Use apiClient.postForm to include auth headers
-  const res = await apiClient.postForm<{ artifactId: string; storagePath: string; sizeBytes: number }>(
+  const res = await apiClient.postForm<{ artifactId: string; storagePath: string; sizeBytes: number; duration_ms?: number }>(
     `/proctoring/recordings/${record.submissionId}/upload`,
     form,
   );

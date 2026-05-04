@@ -53,6 +53,8 @@ import type {
   APIProctoringEventInput,
   APIProctoringEventIngestionResult,
   APIRiskScoreResponse,
+  APIStartWindowInterviewRequest,
+  APIStartWindowInterviewResponse,
   LoginRequest,
   LoginResponse,
 } from '@/types/api';
@@ -301,6 +303,16 @@ export async function updatePracticeFlashcardDeckProgress(
 
 export async function startPracticeSession(data: APIStartPracticeRequest): Promise<APIStartPracticeResponse> {
   return apiClient.post<APIStartPracticeResponse>('/candidate/practice/start', data);
+}
+
+export async function startWindowInterview(
+  windowId: number,
+  data: APIStartWindowInterviewRequest,
+): Promise<APIStartWindowInterviewResponse> {
+  return apiClient.post<APIStartWindowInterviewResponse>(
+    `/candidate/windows/${windowId}/start`,
+    data,
+  );
 }
 
 // ---- Resumes ----

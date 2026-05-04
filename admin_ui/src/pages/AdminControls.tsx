@@ -365,22 +365,28 @@ const AdminControls = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {windows.map(window => (
+                  {windows.map(window => {
+                    const start = new Date(window.start_time);
+                    const end = new Date(window.end_time);
+                    const now = new Date();
+                    const status = now < start ? 'Scheduled' : now > end ? 'Closed' : 'Open';
+                    return (
                     <tr key={window.id} className="border-b hover:bg-slate-50">
                       <td className="p-3">{window.name}</td>
                       <td className="p-3 text-xs text-slate-600">
-                        {window.start_date} to {window.end_date}
+                        {start.toLocaleString()} to {end.toLocaleString()}
                       </td>
                       <td className="p-3">
                         <span className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
-                          Active
+                          {status}
                         </span>
                       </td>
                       <td className="p-3 text-xs">
                         <button className="text-blue-600 hover:underline">Edit</button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

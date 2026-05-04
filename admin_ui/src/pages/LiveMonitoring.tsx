@@ -24,14 +24,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { proctoringApi } from "@/services/api";
 import type {
-  LatestProctoringRecordingResponse,
   ProctoringEventResponse,
-  ProctoringReviewQueueItemResponse,
+  ProctoringMonitoringSessionItemResponse,
+  ProctoringRecordingArtifactResponse,
 } from "@/types/admin-api";
 
 type WatchMode = "live" | "recording";
 type GridSize = 1 | 2 | 3 | 4;
 type LiveStatus = "idle" | "connecting" | "connected" | "unsupported" | "failed";
+type ViewMode = "live" | "completed";
 
 interface MonitoringSession {
   id: number;
@@ -39,9 +40,14 @@ interface MonitoringSession {
   role: string;
   elapsed: string;
   status: "Normal" | "Alert" | "Reviewed";
+  submissionStatus: string;
   alerts: number;
   section: string;
   risk: number;
+  windowId?: number | null;
+  windowName?: string | null;
+  startedAt?: string | null;
+  submittedAt?: string | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -68,13 +74,78 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+function formatDuration(ms?: number | null) {
+  if (!ms || !Number.isFinite(ms)) return "-";
+  const totalSeconds = Math.round(ms / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function LiveTile({ session, enabled, onOpen }: { session: MonitoringSession; enabled: boolean; onOpen: () => void }) {
+  const live = useWebRtcLiveStream(session.id, enabled);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div>
+          <div className="text-xs text-muted-foreground">Submission</div>
+          <div className="text-sm font-semibold">#{session.id}</div>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+          onClick={onOpen}
+        >
+          Details
+        </button>
+      </div>
+      <video
+        ref={live.videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full rounded-lg bg-black aspect-video object-contain"
+      />
+      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>{session.windowName ?? "Live Session"}</span>
+        <span className={live.status === "connected" ? "text-success" : live.status === "unsupported" ? "text-warning" : "text-destructive"}>
+          {live.status}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTokenRef = useRef(0);
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [reconnectToken, setReconnectToken] = useState(0);
+
+  const scheduleReconnect = () => {
+    if (!enabled || !submissionId) return;
+    if (reconnectTimerRef.current) return;
+    if (reconnectAttemptRef.current >= 5) {
+      setStatus("failed");
+      setError("WebRTC reconnect attempts exceeded.");
+      return;
+    }
+    reconnectAttemptRef.current += 1;
+    const delayMs = 1000 * reconnectAttemptRef.current;
+    setStatus("connecting");
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      reconnectTokenRef.current += 1;
+      setReconnectToken(reconnectTokenRef.current);
+    }, delayMs);
+  };
 
   useEffect(() => {
     const signalingBase = import.meta.env.VITE_PROCTORING_LIVE_SIGNALING_URL as string | undefined;
@@ -82,6 +153,11 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
     if (!enabled || !submissionId) {
       setStatus("idle");
       setError(null);
+      reconnectAttemptRef.current = 0;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       return;
     }
 
@@ -181,9 +257,11 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
       console.debug('[LiveMonitoring] pc.iceConnectionState changed:', pc.iceConnectionState);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         console.debug('[LiveMonitoring] ICE connection established');
+        reconnectAttemptRef.current = 0;
       }
       if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
         console.error('[LiveMonitoring] ICE connection failed:', pc.iceConnectionState);
+        scheduleReconnect();
       }
     };
 
@@ -192,11 +270,13 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
       if (pc.connectionState === "connected") {
         console.debug('[LiveMonitoring] peer connection connected');
         setStatus("connected");
+        reconnectAttemptRef.current = 0;
       }
       if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
         console.error('[LiveMonitoring] peer connection failed/disconnected:', pc.connectionState);
         setStatus("failed");
         setError("WebRTC connection ended.");
+        scheduleReconnect();
       }
     };
 
@@ -275,12 +355,14 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
       console.error("[LiveMonitoring] signaling WS error");
       setStatus("failed");
       setError("WebRTC signaling failed.");
+      scheduleReconnect();
     };
 
     ws.onclose = () => {
       console.debug("[LiveMonitoring] signaling WS closed");
       if (!cleanedUp) {
         setStatus("failed");
+        scheduleReconnect();
       }
     };
 
@@ -298,28 +380,34 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
         videoRef.current.srcObject = null;
       }
     };
-  }, [enabled, submissionId]);
+  }, [enabled, submissionId, reconnectToken]);
 
   return { videoRef, status, error };
 }
 
 const LiveMonitoring = () => {
   const { accessToken } = useAuth();
-  const [items, setItems] = useState<ProctoringReviewQueueItemResponse[]>([]);
+  const [items, setItems] = useState<ProctoringMonitoringSessionItemResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionFilter, setSessionFilter] = useState<"all" | "alerts">("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("live");
+  const [selectedWindowId, setSelectedWindowId] = useState<number | "all">("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<MonitoringSession | null>(null);
   const [watchMode, setWatchMode] = useState<WatchMode>("live");
   const [gridSize, setGridSize] = useState<GridSize>(2);
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
-  const [latestRecording, setLatestRecording] = useState<LatestProctoringRecordingResponse | null>(null);
+  const [recordings, setRecordings] = useState<ProctoringRecordingArtifactResponse[]>([]);
+  const [selectedRecording, setSelectedRecording] = useState<ProctoringRecordingArtifactResponse | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recentEvents, setRecentEvents] = useState<ProctoringEventResponse[]>([]);
 
   const live = useWebRtcLiveStream(selectedSession?.id ?? null, dialogOpen && watchMode === "live");
+  const headerFont = { fontFamily: '"Space Grotesk", "Trebuchet MS", sans-serif' };
+  const bodyFont = { fontFamily: '"IBM Plex Serif", "Georgia", serif' };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -328,7 +416,11 @@ const LiveMonitoring = () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await proctoringApi.getMonitoringSessions(accessToken, { limit: 100, offset: 0 });
+        const response = await proctoringApi.getMonitoringSessions(accessToken, {
+          limit: 200,
+          offset: 0,
+          status: "in_progress,completed,reviewed",
+        });
         setItems(response.items || []);
       } catch (err: any) {
         setError(err.message || "Failed to load monitoring queue");
@@ -349,48 +441,79 @@ const LiveMonitoring = () => {
         role: `Classification: ${item.classification}`,
         elapsed: `${item.event_count} events`,
         status,
+        submissionStatus: item.submission_status,
         alerts: item.flagged ? 1 : 0,
         section: "Live Session",
         risk: item.total_risk,
+        windowId: item.window_id ?? null,
+        windowName: item.window_name ?? null,
+        startedAt: item.started_at ?? null,
+        submittedAt: item.submitted_at ?? null,
       } satisfies MonitoringSession;
     });
   }, [items]);
 
-  const visibleSessions = useMemo(() => {
-    if (sessionFilter === "alerts") {
-      return sessions.filter((session) => session.status === "Alert");
-    }
-    return sessions;
-  }, [sessionFilter, sessions]);
+  const windowOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    sessions.forEach((session) => {
+      if (session.windowId && !seen.has(session.windowId)) {
+        seen.set(session.windowId, session.windowName || `Window #${session.windowId}`);
+      }
+    });
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+  }, [sessions]);
 
-  const alertCount = sessions.filter((session) => session.status === "Alert").length;
-  const averageRisk = sessions.length
-    ? sessions.reduce((total, session) => total + session.risk, 0) / sessions.length
+  const filteredByWindow = useMemo(() => {
+    if (selectedWindowId === "all") return sessions;
+    return sessions.filter((session) => session.windowId === selectedWindowId);
+  }, [sessions, selectedWindowId]);
+
+  const visibleSessions = useMemo(() => {
+    const byStatus = filteredByWindow.filter((session) => {
+      if (viewMode === "live") return session.submissionStatus === "in_progress";
+      return session.submissionStatus === "completed" || session.submissionStatus === "reviewed";
+    });
+
+    if (sessionFilter === "alerts") {
+      return byStatus.filter((session) => session.status === "Alert");
+    }
+    return byStatus;
+  }, [filteredByWindow, sessionFilter, viewMode]);
+
+  const alertCount = visibleSessions.filter((session) => session.status === "Alert").length;
+  const averageRisk = visibleSessions.length
+    ? visibleSessions.reduce((total, session) => total + session.risk, 0) / visibleSessions.length
     : 0;
 
   const openWatch = async (session: MonitoringSession) => {
     setSelectedSession(session);
     setDialogOpen(true);
-    setLatestRecording(null);
+    setRecordings([]);
+    setSelectedRecording(null);
     setRecordingUrl(null);
     setRecentEvents([]);
     setRecordingError(null);
 
     const hasLiveEndpoint = Boolean(import.meta.env.VITE_PROCTORING_LIVE_SIGNALING_URL);
-    setWatchMode(hasLiveEndpoint ? "live" : "recording");
+    const canWatchLive = session.submissionStatus === "in_progress" && hasLiveEndpoint;
+    setWatchMode(canWatchLive ? "live" : "recording");
 
     if (!accessToken) return;
 
     setRecordingLoading(true);
     try {
       try {
-        const latest = await proctoringApi.getLatestRecording(session.id, accessToken);
-        setLatestRecording(latest);
-        const playback = await proctoringApi.getPlayback(session.id, latest.artifact_id, accessToken);
-        if (playback.presigned_url) {
-          setRecordingUrl(playback.presigned_url);
-        } else {
-          setRecordingError(playback.error || "Unable to resolve a playback URL for this recording.");
+        const artifacts = await proctoringApi.getRecordings(session.id, accessToken);
+        setRecordings(artifacts);
+        const first = artifacts[0] ?? null;
+        setSelectedRecording(first);
+        if (first) {
+          const playback = await proctoringApi.getPlayback(session.id, first.artifact_id, accessToken);
+          if (playback.presigned_url) {
+            setRecordingUrl(playback.presigned_url);
+          } else {
+            setRecordingError(playback.error || "Unable to resolve a playback URL for this recording.");
+          }
         }
       } catch (err: any) {
         if (err.statusCode === 404 || err.status === 404) {
@@ -487,15 +610,57 @@ const LiveMonitoring = () => {
     },
     {
       title: "Recording Info",
-      body: latestRecording ? (
+      body: selectedRecording ? (
         <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Artifact</span><span className="font-mono text-xs">{latestRecording.artifact_id}</span></div>
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Type</span><span>{latestRecording.mime_type}</span></div>
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Size</span><span>{formatBytes(latestRecording.file_size_bytes)}</span></div>
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Created</span><span>{new Date(latestRecording.created_at).toLocaleString()}</span></div>
+          <div className="flex items-center justify-between"><span className="text-muted-foreground">Artifact</span><span className="font-mono text-xs">{selectedRecording.artifact_id}</span></div>
+          <div className="flex items-center justify-between"><span className="text-muted-foreground">Type</span><span>{selectedRecording.mime_type}</span></div>
+          <div className="flex items-center justify-between"><span className="text-muted-foreground">Size</span><span>{formatBytes(selectedRecording.file_size_bytes)}</span></div>
+          <div className="flex items-center justify-between"><span className="text-muted-foreground">Duration</span><span>{formatDuration(selectedRecording.duration_ms)}</span></div>
+          <div className="flex items-center justify-between"><span className="text-muted-foreground">Created</span><span>{new Date(selectedRecording.created_at).toLocaleString()}</span></div>
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">The latest persisted blob will appear here after upload.</div>
+      ),
+    },
+    {
+      title: "Recording Segments",
+      body: recordings.length ? (
+        <div className="space-y-2 text-sm max-h-[260px] overflow-auto pr-1">
+          {recordings.map((rec, index) => (
+            <button
+              key={rec.artifact_id}
+              type="button"
+              className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${selectedRecording?.artifact_id === rec.artifact_id
+                ? "border-primary bg-primary/10"
+                : "border-border bg-muted/30 hover:bg-muted"
+              }`}
+              onClick={async () => {
+                if (!accessToken || !selectedSession) return;
+                setSelectedRecording(rec);
+                setRecordingError(null);
+                setRecordingUrl(null);
+                try {
+                  const playback = await proctoringApi.getPlayback(selectedSession.id, rec.artifact_id, accessToken);
+                  if (playback.presigned_url) {
+                    setRecordingUrl(playback.presigned_url);
+                  } else {
+                    setRecordingError(playback.error || "Unable to resolve a playback URL for this recording.");
+                  }
+                } catch (err: any) {
+                  setRecordingError(err.message || "Failed to resolve playback URL.");
+                }
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Segment {recordings.length - index}</span>
+                <span className="text-xs text-muted-foreground">{formatBytes(rec.file_size_bytes)}</span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">{new Date(rec.created_at).toLocaleString()}</div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground">No recording segments available.</div>
       ),
     },
     {
@@ -518,10 +683,49 @@ const LiveMonitoring = () => {
     },
   ];
 
+  const canWatchLive = Boolean(import.meta.env.VITE_PROCTORING_LIVE_SIGNALING_URL)
+    && selectedSession?.submissionStatus === "in_progress";
+
   const panelCount = gridSize * gridSize;
+  const pageSize = gridSize * gridSize;
+  const pageCount = Math.max(1, Math.ceil(visibleSessions.length / pageSize));
+  const clampedPage = Math.min(currentPage, pageCount);
+  const pagedSessions = visibleSessions.slice((clampedPage - 1) * pageSize, clampedPage * pageSize);
 
   return (
     <PageWrapper title="Live Monitoring" description="Monitor ongoing interviews in real-time with proctoring alerts">
+      <div className="relative">
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12)_0%,_rgba(15,23,42,0)_55%),radial-gradient(circle_at_bottom_left,_rgba(59,130,246,0.18)_0%,_rgba(15,23,42,0)_60%)]" />
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,_rgba(8,12,24,0.96)_0%,_rgba(15,23,42,0.98)_55%,_rgba(8,12,24,1)_100%)]" />
+      </div>
+      <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-[#0b1220] via-[#0f172a] to-[#111827] p-6 mb-8">
+        <div className="absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[radial-gradient(circle,_rgba(56,189,248,0.18)_0%,_rgba(15,23,42,0)_60%)]" />
+        <div className="absolute -left-16 -bottom-16 h-56 w-56 rounded-full bg-[radial-gradient(circle,_rgba(59,130,246,0.22)_0%,_rgba(15,23,42,0)_70%)]" />
+        <div className="relative flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-300/80" style={headerFont}>Invigilator Desk</p>
+              <h1 className="text-2xl font-semibold text-slate-100" style={headerFont}>Live Monitoring Command</h1>
+              <p className="text-sm text-slate-300/80 mt-1" style={bodyFont}>Switch between live and completed sessions, then inspect recordings and events.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200" style={headerFont}>
+                {viewMode === "live" ? "Live Feed" : "Archive"}
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200" style={headerFont}>
+                {selectedWindowId === "all" ? "All windows" : `Window #${selectedWindowId}`}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard title="Live Sessions" value={loading ? "..." : String(sessions.length)} icon={Activity} iconColor="text-success" />
+            <StatCard title="Active Alerts" value={loading ? "..." : String(alertCount)} change="Flagged for review" changeType="negative" icon={AlertTriangle} iconColor="text-destructive" />
+            <StatCard title="Avg. Risk" value={loading ? "..." : averageRisk.toFixed(1)} icon={Clock} iconColor="text-info" />
+            <StatCard title="Connection Quality" value={watchMode === "live" ? (live.status === "connected" ? "Live" : live.status) : "Blob"} icon={Wifi} iconColor="text-success" />
+          </div>
+        </div>
+      </div>
+
       {error && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -529,20 +733,35 @@ const LiveMonitoring = () => {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard title="Live Sessions" value={loading ? "..." : String(sessions.length)} icon={Activity} iconColor="text-success" />
-        <StatCard title="Active Alerts" value={loading ? "..." : String(alertCount)} change="Flagged for review" changeType="negative" icon={AlertTriangle} iconColor="text-destructive" />
-        <StatCard title="Avg. Risk" value={loading ? "..." : averageRisk.toFixed(1)} icon={Clock} iconColor="text-info" />
-        <StatCard title="Connection Quality" value={watchMode === "live" ? (live.status === "connected" ? "Live" : live.status) : "Blob"} icon={Wifi} iconColor="text-success" />
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div className="text-sm text-muted-foreground">
-          {sessionFilter === "alerts"
-            ? "Showing flagged sessions only"
-            : "Showing all live sessions"}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 rounded-2xl border border-border bg-card/80 p-4 shadow-sm">
+        <div className="text-sm text-muted-foreground" style={bodyFont}>
+          {viewMode === "live"
+            ? (sessionFilter === "alerts" ? "Showing flagged live sessions" : "Showing all live sessions")
+            : (sessionFilter === "alerts" ? "Showing flagged completed sessions" : "Showing all completed sessions")}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === "live" ? "default" : "outline"}
+            onClick={() => {
+              setViewMode("live");
+              setCurrentPage(1);
+            }}
+          >
+            Live
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === "completed" ? "default" : "outline"}
+            onClick={() => {
+              setViewMode("completed");
+              setCurrentPage(1);
+            }}
+          >
+            Completed
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -559,6 +778,21 @@ const LiveMonitoring = () => {
           >
             Active Alerts
           </Button>
+          <select
+            className="h-9 rounded-md border border-border bg-background px-3 text-xs"
+            value={selectedWindowId}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSelectedWindowId(value === "all" ? "all" : Number(value));
+              setCurrentPage(1);
+            }}
+            style={headerFont}
+          >
+            <option value="all">All windows</option>
+            {windowOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>{opt.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -567,62 +801,124 @@ const LiveMonitoring = () => {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading live monitoring data...
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visibleSessions.length === 0 ? (
-            <div className="glass-card p-6 text-sm text-muted-foreground">
-              {sessionFilter === "alerts" ? "No active alerts right now." : "No live sessions available for monitoring."}
-            </div>
-          ) : visibleSessions.map((s) => (
-            <motion.div key={s.id} variants={itemVariant} className="glass-card p-5 relative overflow-hidden">
-              {s.status === "Alert" && <div className="absolute top-0 left-0 right-0 h-0.5 bg-destructive animate-pulse" />}
-              {s.status === "Normal" && <div className="absolute top-0 left-0 right-0 h-0.5 bg-success" />}
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-semibold text-sm">{s.candidate}</h3>
-                  <p className="text-xs text-muted-foreground">{s.role}</p>
-                </div>
-                <span className={statusColors[s.status]}>
-                  {s.status === "Alert" && <span className="pulse-dot bg-destructive" />}
-                  {s.status}
-                </span>
+        <div className="space-y-4">
+          {viewMode === "live" ? (
+            visibleSessions.length === 0 ? (
+              <div className="glass-card p-6 text-sm text-muted-foreground">
+                {sessionFilter === "alerts" ? "No active live alerts right now." : "No live sessions available for monitoring."}
               </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Section</span><span className="text-foreground">{s.section}</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Events</span><span className="text-foreground font-mono">{s.elapsed}</span>
-                </div>
-                {s.alerts > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Alerts</span><span className="text-destructive font-medium">{s.alerts}</span>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <LayoutGrid className="h-4 w-4" />
+                    <span>{gridSize}x{gridSize} view</span>
                   </div>
-                )}
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Risk</span><span className="text-foreground font-medium">{s.risk.toFixed(1)}</span>
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3, 4].map((size) => (
+                      <button key={size} type="button" className={gridButtonClass(gridSize === size)} onClick={() => {
+                        setGridSize(size as GridSize);
+                        setCurrentPage(1);
+                      }}>
+                        {size === 1 ? "1x1" : `${size}x${size}`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
-                <button
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-muted hover:bg-muted/80 rounded-lg text-xs transition-colors"
-                  onClick={() => void openWatch(s)}
-                >
-                  <Eye className="h-3 w-3" /> Watch
-                </button>
-                <button className="flex items-center justify-center gap-2 px-3 py-2 bg-warning/20 text-warning hover:bg-warning/30 rounded-lg text-xs transition-colors" disabled>
-                  <PauseCircle className="h-3 w-3" /> Pause
-                </button>
-                <button className="flex items-center justify-center gap-2 px-3 py-2 bg-destructive/20 text-destructive hover:bg-destructive/30 rounded-lg text-xs transition-colors" disabled>
-                  <Flag className="h-3 w-3" /> Flag
-                </button>
-              </div>
-            </motion.div>
-          ))}
+                <div className={`grid ${gridClass} gap-3`}>
+                  {pagedSessions.map((s) => (
+                    <LiveTile
+                      key={s.id}
+                      session={s}
+                      enabled={!dialogOpen}
+                      onOpen={() => void openWatch(s)}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <button
+                    type="button"
+                    className="rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+                    disabled={clampedPage === 1}
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Prev
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: pageCount }, (_, idx) => idx + 1).map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        className={`h-2 w-2 rounded-full ${page === clampedPage ? "bg-primary" : "bg-muted"}`}
+                        onClick={() => setCurrentPage(page)}
+                        aria-label={`Go to page ${page}`}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
+                    disabled={clampedPage === pageCount}
+                    onClick={() => setCurrentPage((prev) => Math.min(pageCount, prev + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {visibleSessions.length === 0 ? (
+                <div className="glass-card p-6 text-sm text-muted-foreground">
+                  No completed sessions available for monitoring.
+                </div>
+              ) : visibleSessions.map((s) => (
+                <motion.div key={s.id} variants={itemVariant} className="glass-card p-5 relative overflow-hidden">
+                  {s.status === "Alert" && <div className="absolute top-0 left-0 right-0 h-0.5 bg-destructive animate-pulse" />}
+                  {s.status === "Normal" && <div className="absolute top-0 left-0 right-0 h-0.5 bg-success" />}
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-semibold text-sm">{s.candidate}</h3>
+                      <p className="text-xs text-muted-foreground">{s.role}</p>
+                    </div>
+                    <span className={statusColors[s.status]}>
+                      {s.status === "Alert" && <span className="pulse-dot bg-destructive" />}
+                      {s.status}
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Window</span><span className="text-foreground">{s.windowName ?? "-"}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Events</span><span className="text-foreground font-mono">{s.elapsed}</span>
+                    </div>
+                    {s.alerts > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Alerts</span><span className="text-destructive font-medium">{s.alerts}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Risk</span><span className="text-foreground font-medium">{s.risk.toFixed(1)}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4 pt-4 border-t border-border/50">
+                    <button
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-muted hover:bg-muted/80 rounded-lg text-xs transition-colors"
+                      onClick={() => void openWatch(s)}
+                    >
+                      <Eye className="h-3 w-3" /> Watch
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-7xl w-[95vw] max-h-[92vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-7xl w-[95vw] max-h-[92vh] overflow-hidden flex flex-col bg-gradient-to-br from-[#0b1220] via-[#0f172a] to-[#111827] text-slate-100 border border-white/10">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <SquarePlay className="h-5 w-5" />
@@ -632,7 +928,13 @@ const LiveMonitoring = () => {
 
           <div className="flex items-center justify-between gap-3 flex-wrap border-b border-border pb-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <Button type="button" variant={watchMode === "live" ? "default" : "outline"} size="sm" onClick={() => setWatchMode("live")}>
+              <Button
+                type="button"
+                variant={watchMode === "live" ? "default" : "outline"}
+                size="sm"
+                disabled={!canWatchLive}
+                onClick={() => setWatchMode("live")}
+              >
                 <PlayCircle className="mr-2 h-4 w-4" /> Live WebRTC
               </Button>
               <Button type="button" variant={watchMode === "recording" ? "default" : "outline"} size="sm" onClick={() => setWatchMode("recording")}>
@@ -659,11 +961,11 @@ const LiveMonitoring = () => {
 
           <div className={`grid ${gridClass} gap-3 mt-4 overflow-auto pr-1`}>
             {panels.slice(0, panelCount).map((panel) => (
-              <div key={panel.title} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div key={panel.title} className="rounded-xl border border-border bg-card/90 p-4 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold">{panel.title}</h3>
-                  {panel.title === videoTitle && watchMode === "recording" && latestRecording && (
-                    <Badge variant="secondary">{formatBytes(latestRecording.file_size_bytes)}</Badge>
+                  {panel.title === videoTitle && watchMode === "recording" && selectedRecording && (
+                    <Badge variant="secondary">{formatBytes(selectedRecording.file_size_bytes)}</Badge>
                   )}
                 </div>
                 {panel.body}

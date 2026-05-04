@@ -22,10 +22,27 @@ class StartInterviewRequest(BaseModel):
 
     submission_id: int = Field(..., gt=0, description="Interview submission ID")
     consent_accepted: bool = Field(..., description="Candidate consent flag")
+    consent_payload: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional consent details captured from the candidate",
+    )
 
     model_config = {
         "json_schema_extra": {
-            "examples": [{"submission_id": 42, "consent_accepted": True}]
+            "examples": [
+                {
+                    "submission_id": 42,
+                    "consent_accepted": True,
+                    "consent_payload": {
+                        "screenRecording": True,
+                        "audioRecording": True,
+                        "videoRecording": False,
+                        "dataProcessing": True,
+                        "termsAccepted": True,
+                        "proctoringPolicyAccepted": True,
+                    },
+                }
+            ]
         }
     }
 

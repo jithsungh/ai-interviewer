@@ -89,6 +89,7 @@ export function useInterview(submissionId: number | null) {
   const questionStartTimeRef = useRef<number>(Date.now());
   const questionLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreAttemptedRef = useRef(false);
+  const resumeAfterConsentRef = useRef(false);
 
   // ---- Helper: Set timeout for question loading ----
   
@@ -355,15 +356,25 @@ export function useInterview(submissionId: number | null) {
 
   // ---- Start interview (REST call + WS connect) ----
 
-  const startSession = useCallback(async (consentAccepted: boolean) => {
+  const startSession = useCallback(async (
+    consentAccepted: boolean,
+    consentPayload?: Record<string, unknown> | null,
+  ) => {
     if (!submissionId) return;
 
     setState(prev => ({ ...prev, phase: 'connecting', submissionId }));
+
+    if (resumeAfterConsentRef.current) {
+      resumeAfterConsentRef.current = false;
+      connectInterview();
+      return;
+    }
 
     try {
       await startInterview({
         submission_id: submissionId,
         consent_accepted: consentAccepted,
+        consent_payload: consentPayload ?? undefined,
       });
     } catch (err) {
       // If the session is already in_progress (CONFLICT), we can still proceed to connect
@@ -392,24 +403,19 @@ export function useInterview(submissionId: number | null) {
         const status = detail.session.status;
 
         if (status === 'in_progress') {
+          resumeAfterConsentRef.current = true;
           setState(prev => ({
             ...prev,
             submissionId,
-            phase: 'connecting',
+            phase: 'consent',
             currentSequence: detail.exchanges?.length ?? 0,
             error: null,
           }));
-          connectInterview();
           return;
         }
 
         if (status === 'pending') {
-          if (detail.session.consent_captured) {
-            setState(prev => ({ ...prev, submissionId, phase: 'connecting', error: null }));
-            void startSession(true);
-            return;
-          }
-
+          resumeAfterConsentRef.current = false;
           setState(prev => ({ ...prev, submissionId, phase: 'consent', error: null }));
           return;
         }

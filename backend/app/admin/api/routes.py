@@ -91,6 +91,8 @@ from .contracts import (
     WindowCreateRequest,
     WindowDetailResponse,
     WindowListResponse,
+    WindowMappingListResponse,
+    WindowMappingResponse,
     WindowResponse,
     WindowUpdateRequest,
 )
@@ -300,6 +302,17 @@ def _window_to_response(w: Window) -> WindowResponse:
         allow_resubmission=w.allow_resubmission,
         created_at=w.created_at,
         updated_at=w.updated_at,
+    )
+
+
+def _window_mapping_to_response(m: WindowRoleTemplate) -> WindowMappingResponse:
+    return WindowMappingResponse(
+        id=m.id,
+        window_id=m.window_id,
+        role_id=m.role_id,
+        template_id=m.template_id,
+        selection_weight=m.selection_weight,
+        created_at=m.created_at,
     )
 
 
@@ -1129,10 +1142,13 @@ def create_window(
     db: Session = Depends(get_db_session_with_commit),
 ) -> WindowDetailResponse:
     svc = build_window_service(db)
+    admin = db.query(AuthAdmin).filter(AuthAdmin.user_id == identity.user_id).first()
+    if admin is None:
+        raise NotFoundError(resource_type="Admin", resource_id=identity.user_id)
     window = Window(
         id=None,
         organization_id=0,  # set by service
-        admin_id=identity.user_id,
+        admin_id=admin.id,
         name=body.name,
         scope=body.scope,
         start_time=body.start_time,
@@ -1170,6 +1186,25 @@ def get_window(
     svc = build_window_service(db)
     window = svc.get_window(window_id, identity)
     return WindowDetailResponse(data=_window_to_response(window), meta=_meta(request))
+
+
+@router.get(
+    "/windows/{window_id}/mappings",
+    response_model=WindowMappingListResponse,
+    summary="List window role-template mappings",
+)
+def list_window_mappings(
+    request: Request,
+    window_id: int,
+    identity: IdentityContext = Depends(require_admin),
+    db: Session = Depends(get_db_session_with_commit),
+) -> WindowMappingListResponse:
+    svc = build_window_service(db)
+    mappings = svc.list_window_mappings(window_id, identity)
+    return WindowMappingListResponse(
+        data=[_window_mapping_to_response(m) for m in mappings],
+        meta=_meta(request),
+    )
 
 
 @router.put(

@@ -26,12 +26,15 @@ import {
   getCandidateResumes,
   getCandidateSettings,
   getCurrentUser,
+  getCandidateWindows,
   getPracticeTemplates,
   startPracticeSession,
+  startWindowInterview,
   updateCandidateSettings,
   uploadCandidateResume,
   type APIPracticeTemplateDTO,
 } from '@/services/candidateService';
+import type { InterviewSubmissionWindow } from '@/types/database';
 import type { APIResumeDTO } from '@/types/api';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowRight, Clock, CheckCircle2, Mic, Video, Shield, Sparkles } from 'lucide-react';
@@ -172,10 +175,19 @@ const InterviewLobby = () => {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const categoryParam = searchParams.get('category');
+  const windowIdParam = searchParams.get('window_id');
+  const windowId = windowIdParam ? Number(windowIdParam) : null;
 
-  const [templates, setTemplates] = useState<APIPracticeTemplateDTO[]>([]);
+  type LobbyTemplate = APIPracticeTemplateDTO & {
+    role_template_id?: number;
+    role_name?: string | null;
+    window_id?: number;
+  };
+
+  const [templates, setTemplates] = useState<LobbyTemplate[]>([]);
+  const [windowContext, setWindowContext] = useState<InterviewSubmissionWindow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedTemplate, setSelectedTemplate] = useState<APIPracticeTemplateDTO | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<LobbyTemplate | null>(null);
   const [experienceLevel, setExperienceLevel] = useState('mid_level');
   const [targetCompany, setTargetCompany] = useState('');
   const [enableVoice, setEnableVoice] = useState(true);
@@ -196,24 +208,61 @@ const InterviewLobby = () => {
   const [resumeError, setResumeError] = useState<string | null>(null);
 
   useEffect(() => {
-    getPracticeTemplates()
-      .then((data) => {
+    const loadTemplates = async () => {
+      try {
+        if (windowId) {
+          const { data } = await getCandidateWindows({ per_page: 100 });
+          const windowMatch = data.find((w) => w.id === windowId);
+          if (!windowMatch) {
+            toast({ title: 'Interview window not found', variant: 'destructive' });
+            setIsLoading(false);
+            return;
+          }
+          setWindowContext(windowMatch);
+
+          const mapped = (windowMatch.role_templates ?? []).map((rt) => ({
+            id: rt.template?.id ?? rt.template_id,
+            name: rt.template?.name ?? `Template ${rt.template_id}`,
+            description: rt.template?.description ?? null,
+            category: (rt.role?.name ?? 'Interview').toLowerCase(),
+            total_estimated_time_minutes: rt.template?.total_estimated_time_minutes ?? 60,
+            total_questions: null,
+            target_level: null,
+            topics: [],
+            sections: null,
+            difficulty_distribution: null,
+            is_active: rt.template?.is_active ?? true,
+            role_template_id: rt.id,
+            role_name: rt.role?.name ?? null,
+            window_id: windowMatch.id,
+          }));
+
+          setTemplates(mapped);
+          setSelectedTemplate(mapped[0] ?? null);
+          setIsLoading(false);
+          return;
+        }
+
+        const data = await getPracticeTemplates();
         setTemplates(data);
         // Pre-select template matching category param if provided
         if (categoryParam && data.length > 0) {
-          const matchingTemplate = data.find((t) => 
+          const matchingTemplate = data.find((t) =>
             t.category.toLowerCase() === categoryParam.toLowerCase()
           );
           setSelectedTemplate(matchingTemplate || data[0]);
         } else if (data.length > 0) {
           setSelectedTemplate(data[0]);
         }
-      })
-      .catch(() => {
+      } catch {
         toast({ title: 'Failed to load interview types', variant: 'destructive' });
-      })
-      .finally(() => setIsLoading(false));
-  }, [categoryParam]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTemplates();
+  }, [categoryParam, windowId]);
 
   useEffect(() => {
     const hydrateVoices = () => {
@@ -464,15 +513,23 @@ const InterviewLobby = () => {
 
     setIsStarting(true);
     try {
-      const response = await startPracticeSession({
-        template_id: selectedTemplate.id,
-        experience_level: experienceLevel,
-        target_company: targetCompany || undefined,
-        voice_interview: enableVoice,
-        video_recording: enableVideo,
-        ai_proctoring: enableProctoring,
-        consent_accepted: true,
-      });
+      if (windowContext && !selectedTemplate.role_template_id) {
+        throw new Error('Please select a role template to continue.');
+      }
+
+      const response = windowContext
+        ? await startWindowInterview(windowContext.id, {
+            role_template_id: selectedTemplate.role_template_id as number,
+          })
+        : await startPracticeSession({
+            template_id: selectedTemplate.id,
+            experience_level: experienceLevel,
+            target_company: targetCompany || undefined,
+            voice_interview: enableVoice,
+            video_recording: enableVideo,
+            ai_proctoring: enableProctoring,
+            consent_accepted: true,
+          });
 
       const effectiveCustomization: InterviewCustomization = {
         ...customization,

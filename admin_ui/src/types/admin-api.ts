@@ -6,6 +6,18 @@ export interface LatestProctoringRecordingResponse {
   storage_path: string;
   mime_type: string;
   file_size_bytes: number;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export interface ProctoringRecordingArtifactResponse {
+  artifact_id: string;
+  storage_path: string;
+  mime_type: string;
+  file_size_bytes: number;
+  duration_ms?: number | null;
+  upload_started_at?: string | null;
+  upload_completed_at?: string | null;
   created_at: string;
 }
 
@@ -25,6 +37,7 @@ export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 export type QuestionType = 'behavioral' | 'technical' | 'situational' | 'coding';
 export type ProgrammingLanguage = 'python' | 'javascript' | 'typescript' | 'java' | 'cpp' | 'go' | 'rust';
 export type CodingProblemDifficulty = 'easy' | 'medium' | 'hard' | 'expert';
+export type InterviewScope = 'global' | 'local' | 'only_invited';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Templates
@@ -61,6 +74,26 @@ export interface TemplateUpdateRequest {
   template_structure?: Record<string, any>;
   rules?: Record<string, any>;
   total_estimated_time_minutes?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Roles
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface RoleResponse {
+  id: number;
+  name: string;
+  description?: string;
+  scope: TemplateScope;
+  organization_id?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RoleListResponse {
+  data: RoleResponse[];
+  pagination: PaginationMeta;
+  meta: MetaInfo;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -178,39 +211,69 @@ export interface RubricUpdateRequest {
 // Interview Windows/Scheduling
 // ═══════════════════════════════════════════════════════════════════════════
 
+export interface WindowMappingRequest {
+  role_id: number;
+  template_id: number;
+  selection_weight?: number;
+}
+
+export interface WindowMappingResponse {
+  id?: number;
+  window_id: number;
+  role_id: number;
+  template_id: number;
+  selection_weight: number;
+  created_at?: string;
+}
+
+export interface WindowMappingListResponse {
+  data: WindowMappingResponse[];
+  meta: MetaInfo;
+}
+
 export interface InterviewWindowResponse {
   id: number;
+  organization_id: number;
+  admin_id: number;
   name: string;
-  description?: string;
-  template_id: number;
-  start_date: string;
-  end_date: string;
-  max_candidates: number;
-  proctoring_enabled: boolean;
-  is_active: boolean;
-  lock_invites?: boolean;
+  scope: InterviewScope;
+  start_time: string;
+  end_time: string;
+  timezone: string;
+  max_allowed_submissions?: number | null;
+  allow_after_end_time: boolean;
+  allow_resubmission: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface InterviewWindowCreateRequest {
   name: string;
-  description?: string;
-  template_id: number;
-  start_date: string;
-  end_date: string;
-  max_candidates: number;
-  proctoring_enabled?: boolean;
+  scope: InterviewScope;
+  start_time?: string;
+  end_time?: string;
+  timezone: string;
+  start_date?: string;
+  end_date?: string;
+  template_id?: number;
+  role_id?: number;
+  role_ids?: number[];
+  max_allowed_submissions?: number;
+  allow_after_end_time?: boolean;
+  allow_resubmission?: boolean;
+  mappings: WindowMappingRequest[];
 }
 
 export interface InterviewWindowUpdateRequest {
   name?: string;
-  description?: string;
-  template_id?: number;
-  start_date?: string;
-  end_date?: string;
-  max_candidates?: number;
-  proctoring_enabled?: boolean;
+  scope?: InterviewScope;
+  start_time?: string;
+  end_time?: string;
+  timezone?: string;
+  max_allowed_submissions?: number;
+  allow_after_end_time?: boolean;
+  allow_resubmission?: boolean;
+  mappings?: WindowMappingRequest[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -235,9 +298,19 @@ export interface ProctoringReviewQueueResponse {
 
 export interface ProctoringMonitoringSessionsResponse {
   total: number;
-  items: ProctoringReviewQueueItemResponse[];
+  items: ProctoringMonitoringSessionItemResponse[];
   limit: number;
   offset: number;
+}
+
+export interface ProctoringMonitoringSessionItemResponse extends ProctoringReviewQueueItemResponse {
+  submission_status: string;
+  window_id?: number | null;
+  window_name?: string | null;
+  window_start_time?: string | null;
+  window_end_time?: string | null;
+  started_at?: string | null;
+  submitted_at?: string | null;
 }
 
 export interface RiskScoreResponse {

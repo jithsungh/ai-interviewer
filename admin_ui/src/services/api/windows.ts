@@ -13,6 +13,7 @@ import type {
   InterviewWindowUpdateRequest,
   InterviewWindowListResponse,
   InterviewWindowDetailResponse,
+  WindowMappingListResponse,
 } from '@/types/admin-api';
 
 export const windowsApi = {
@@ -63,6 +64,22 @@ export const windowsApi = {
   ): Promise<InterviewWindowDetailResponse> => {
     return adminApiClient.get(
       `/api/v1/admin/windows/${windowId}`,
+      token,
+      organizationId,
+    );
+  },
+
+  /**
+   * List role-template mappings for a window
+   * GET /api/v1/admin/windows/{id}/mappings
+   */
+  getMappings: async (
+    windowId: number,
+    token: string,
+    organizationId?: number,
+  ): Promise<WindowMappingListResponse> => {
+    return adminApiClient.get(
+      `/api/v1/admin/windows/${windowId}/mappings`,
       token,
       organizationId,
     );

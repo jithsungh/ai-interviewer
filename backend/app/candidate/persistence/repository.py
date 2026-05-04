@@ -1492,6 +1492,129 @@ class CandidateQueryRepository:
 
         return submission, template
 
+    # ────────────────────────────────────────────────────────────
+    # Window Submission Creation
+    # ────────────────────────────────────────────────────────────
+
+    def create_window_submission(
+        self,
+        user_id: int,
+        window_id: int,
+        role_template_id: int,
+    ) -> InterviewSubmissionModel:
+        """
+        Create a pending submission for a scheduled interview window.
+
+        Validates window availability, role-template mapping, and submission limits.
+        """
+        candidate_id = self._resolve_candidate_id(user_id)
+        now = datetime.now(timezone.utc)
+
+        window = (
+            self._db.query(InterviewSubmissionWindowModel)
+            .filter(InterviewSubmissionWindowModel.id == window_id)
+            .first()
+        )
+        if window is None:
+            raise NotFoundError(resource_type="Window", resource_id=window_id)
+
+        if now < window.start_time:
+            raise ValueError("Interview window has not started yet.")
+
+        if now > window.end_time and not window.allow_after_end_time:
+            raise ValueError("Interview window is closed.")
+
+        mapping = (
+            self._db.query(WindowRoleTemplateModel)
+            .filter(
+                WindowRoleTemplateModel.id == role_template_id,
+                WindowRoleTemplateModel.window_id == window_id,
+            )
+            .first()
+        )
+        if mapping is None:
+            raise NotFoundError(resource_type="WindowRoleTemplate", resource_id=role_template_id)
+
+        template = (
+            self._db.query(InterviewTemplateModel)
+            .filter(
+                InterviewTemplateModel.id == mapping.template_id,
+                InterviewTemplateModel.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if template is None:
+            raise ValueError("Selected template is not available.")
+
+        role = (
+            self._db.query(RoleModel)
+            .filter(RoleModel.id == mapping.role_id)
+            .first()
+        )
+        if role is None:
+            raise ValueError("Selected role is not available.")
+
+        existing_active = (
+            self._db.query(InterviewSubmissionModel)
+            .filter(
+                InterviewSubmissionModel.candidate_id == candidate_id,
+                InterviewSubmissionModel.window_id == window_id,
+                InterviewSubmissionModel.role_id == mapping.role_id,
+                InterviewSubmissionModel.status.in_(["pending", "in_progress"]),
+            )
+            .order_by(InterviewSubmissionModel.created_at.desc())
+            .first()
+        )
+        if existing_active is not None:
+            return existing_active
+
+        existing_count = (
+            self._db.query(func.count(InterviewSubmissionModel.id))
+            .filter(
+                InterviewSubmissionModel.candidate_id == candidate_id,
+                InterviewSubmissionModel.window_id == window_id,
+            )
+            .scalar()
+        ) or 0
+
+        if window.max_allowed_submissions and existing_count >= window.max_allowed_submissions:
+            raise ValueError("Submission limit reached for this interview window.")
+
+        if not window.allow_resubmission and existing_count > 0:
+            raise ValueError("Resubmission is not allowed for this interview window.")
+
+        snapshot = self._build_practice_snapshot(
+            template,
+            {
+                "window_id": window_id,
+                "role_template_id": role_template_id,
+                "practice_mode": False,
+            },
+        )
+        snapshot["window_config"] = snapshot.pop("practice_config", {})
+
+        if snapshot.get("total_questions", 0) == 0:
+            raise ValueError(
+                f"Cannot start interview: Template '{template.name}' has no available questions."
+            )
+
+        submission = InterviewSubmissionModel(
+            candidate_id=candidate_id,
+            window_id=window_id,
+            role_id=mapping.role_id,
+            template_id=template.id,
+            mode="async",
+            status="pending",
+            consent_captured=False,
+            scheduled_start=window.start_time,
+            scheduled_end=window.end_time,
+            template_structure_snapshot=snapshot,
+        )
+        self._db.add(submission)
+        self._db.flush()
+
+        return submission
+
     def _build_practice_snapshot(
         self,
         template: InterviewTemplateModel,

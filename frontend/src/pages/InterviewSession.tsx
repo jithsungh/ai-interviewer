@@ -82,12 +82,15 @@ const InterviewSession = () => {
   const [screenRecordingState, setScreenRecordingState] = useState<'idle' | 'recording' | 'error' | 'unsupported'>('idle');
   const [screenRecordingError, setScreenRecordingError] = useState<string | null>(null);
   const [isFullscreenActive, setIsFullscreenActive] = useState<boolean>(Boolean(document.fullscreenElement));
+  const [forceConsentGate, setForceConsentGate] = useState(false);
   const shownNoticeIdsRef = useRef<Set<string>>(new Set());
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const pendingScreenStreamRef = useRef<MediaStream | null>(null);
   const screenRecorderRef = useRef<MediaRecorder | null>(null);
   const screenChunksRef = useRef<BlobPart[]>([]);
   const screenStartedAtRef = useRef<number | null>(null);
   const screenStopRequestedRef = useRef(false);
+  const screenShareEndedAtRef = useRef<number | null>(null);
   const publisherPcRef = useRef<RTCPeerConnection | null>(null);
   const publisherWsRef = useRef<WebSocket | null>(null);
   const publisherRetryCountRef = useRef(0);
@@ -98,7 +101,10 @@ const InterviewSession = () => {
   const { toast } = useToast();
   const effectiveSubmissionId = state.submissionId ?? submissionId;
   const consentStorageKey = effectiveSubmissionId ? `interview_consent_${effectiveSubmissionId}` : null;
-  const isInterviewActive = state.phase !== 'consent' && state.phase !== 'completed' && state.phase !== 'error' && state.phase !== 'expired';
+  const isInterviewActive = !forceConsentGate && (state.phase === 'question_loading'
+    || state.phase === 'answering'
+    || state.phase === 'submitting'
+    || state.phase === 'code_executing');
 
   const {
     integrityLevel,
@@ -172,15 +178,18 @@ const InterviewSession = () => {
     }
   }, [state.phase, state.submissionId, state.completionData, state.currentSequence, state.totalQuestions, navigate]);
 
-  const handleConsent = (_consentData: ConsentData) => {
+  const handleConsent = (_consentData: ConsentData, screenStream: MediaStream | null) => {
     setConsentData(_consentData);
+    pendingScreenStreamRef.current = screenStream;
+    setForceConsentGate(false);
+    setScreenRecordingError(null);
     if (consentStorageKey) {
       try {
         localStorage.setItem(consentStorageKey, JSON.stringify(_consentData));
       } catch {
       }
     }
-    startSession(true);
+    startSession(true, _consentData as unknown as Record<string, unknown>);
   };
 
   const handleConsentCancel = () => {
@@ -252,10 +261,22 @@ const InterviewSession = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 10 },
-        audio: false,
-      });
+      let stream = pendingScreenStreamRef.current;
+      if (stream) {
+        pendingScreenStreamRef.current = null;
+      } else {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 10 },
+          audio: false,
+        });
+      }
+
+      if (!stream) {
+        setScreenRecordingState('error');
+        setScreenRecordingError('Screen recording could not start. Please retry screen sharing.');
+        reportEvent('screen_recording_error', 'medium', 'Screen recording could not start (no stream).');
+        return;
+      }
 
       const [videoTrack] = stream.getVideoTracks();
       const surface = videoTrack?.getSettings?.().displaySurface;
@@ -265,6 +286,23 @@ const InterviewSession = () => {
         setScreenRecordingError('Only full-screen sharing is allowed. Please share the Entire Screen.');
         reportEvent('screen_share_not_fullscreen', 'medium', 'Screen-share rejected because selected surface was not full-screen monitor.');
         return;
+      }
+
+      if (effectiveSubmissionId) {
+        const offKey = `screen_share_ended_at_${effectiveSubmissionId}`;
+        const storedEnded = localStorage.getItem(offKey);
+        const endedAt = storedEnded ? Number(storedEnded) : screenShareEndedAtRef.current;
+        if (endedAt && Number.isFinite(endedAt)) {
+          const resumedAt = Date.now();
+          const offDurationMs = Math.max(0, resumedAt - endedAt);
+          reportEvent('screen_share_off_time', 'low', 'Screen share was inactive between sessions.', {
+            off_duration_ms: offDurationMs,
+            ended_at: new Date(endedAt).toISOString(),
+            resumed_at: new Date(resumedAt).toISOString(),
+          });
+          screenShareEndedAtRef.current = null;
+          localStorage.removeItem(offKey);
+        }
       }
 
       screenStreamRef.current = stream;
@@ -306,7 +344,7 @@ const InterviewSession = () => {
 
         if (submissionForPersist && blob.size > 0) {
           try {
-            const { artifactId, sizeBytes } = await persistScreenRecording(submissionForPersist, blob);
+            const { artifactId, sizeBytes } = await persistScreenRecording(submissionForPersist, blob, durationMs);
             reportEvent('screen_recording_persisted', 'low', 'Screen recording artifact persisted.', {
               artifact_id: artifactId,
               size_bytes: sizeBytes,
@@ -349,7 +387,17 @@ const InterviewSession = () => {
 
       stream.getVideoTracks().forEach((track) => {
         track.onended = () => {
-          setScreenRecordingError('Screen sharing stopped. Interview continues, but please re-share full screen to maintain proctoring compliance.');
+          const endedAt = Date.now();
+          screenShareEndedAtRef.current = endedAt;
+          if (effectiveSubmissionId) {
+            const offKey = `screen_share_ended_at_${effectiveSubmissionId}`;
+            try {
+              localStorage.setItem(offKey, String(endedAt));
+            } catch {
+            }
+          }
+          setForceConsentGate(true);
+          setScreenRecordingError('Screen sharing stopped. Please re-share full screen to continue the interview.');
           reportEvent('screen_share_ended', 'medium', 'Screen sharing ended during interview.');
           if (screenRecorderRef.current?.state === 'recording') {
             try {
@@ -407,6 +455,17 @@ const InterviewSession = () => {
           console.debug('[InterviewSession Publisher] WebSocket connecting to', publishUrl);
 
           let offerInFlight = false;
+          const schedulePublisherReconnect = (reason: string) => {
+            if (screenRecorderRef.current?.state !== 'recording') return;
+            if (publisherRetryCountRef.current >= 5) return;
+            publisherRetryCountRef.current += 1;
+            const delayMs = 1000 * publisherRetryCountRef.current;
+            console.info('[InterviewSession Publisher] reconnecting in', delayMs, 'ms', reason);
+            if (publisherRetryTimerRef.current) {
+              clearTimeout(publisherRetryTimerRef.current);
+            }
+            publisherRetryTimerRef.current = setTimeout(() => startPublisher(mediaStream), delayMs);
+          };
           const sendOffer = async (reason: string) => {
             if (offerInFlight) {
               console.debug('[InterviewSession Publisher] Offer already in-flight, skipping', reason);
@@ -460,9 +519,26 @@ const InterviewSession = () => {
               console.debug('[InterviewSession Publisher] Received message from broker', msg.type || msg);
               if (msg.type === 'answer' || msg.sdp?.type === 'answer') {
                 const answer = msg.sdp ?? msg.answer ?? msg;
-                console.debug('[InterviewSession Publisher] Setting remote description (answer)');
-                await pc.setRemoteDescription(answer);
-                console.debug('[InterviewSession Publisher] Successfully set remote answer');
+                if (pc.signalingState !== 'have-local-offer') {
+                  console.debug('[InterviewSession Publisher] Ignoring duplicate/late answer', {
+                    signalingState: pc.signalingState,
+                    hasRemote: Boolean(pc.currentRemoteDescription),
+                  });
+                } else {
+                  console.debug('[InterviewSession Publisher] Setting remote description (answer)');
+                  try {
+                    await pc.setRemoteDescription(answer);
+                    console.debug('[InterviewSession Publisher] Successfully set remote answer');
+                  } catch (err) {
+                    if (err instanceof DOMException && err.name === 'InvalidStateError') {
+                      console.debug('[InterviewSession Publisher] Ignoring InvalidStateError on answer', {
+                        signalingState: pc.signalingState,
+                      });
+                    } else {
+                      throw err;
+                    }
+                  }
+                }
               }
               if (msg.type === 'watch' || msg.type === 'watcher_joined') {
                 await sendOffer(msg.type);
@@ -479,9 +555,15 @@ const InterviewSession = () => {
 
           pc.onconnectionstatechange = () => {
             console.debug('[InterviewSession Publisher] RTCPeerConnection state:', pc.connectionState);
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+              schedulePublisherReconnect('pc_connection');
+            }
           };
           pc.oniceconnectionstatechange = () => {
             console.debug('[InterviewSession Publisher] RTCPeerConnection ICE state:', pc.iceConnectionState);
+            if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+              schedulePublisherReconnect('ice_connection');
+            }
           };
 
           ws.onerror = (e) => console.error('[InterviewSession Publisher] WebSocket error', e);
@@ -491,12 +573,7 @@ const InterviewSession = () => {
               reason: event.reason,
               wasClean: event.wasClean,
             });
-            if (screenRecorderRef.current?.state === 'recording' && publisherRetryCountRef.current < 3) {
-              publisherRetryCountRef.current += 1;
-              const delayMs = 1000 * publisherRetryCountRef.current;
-              console.info('[InterviewSession Publisher] retrying in', delayMs, 'ms');
-              publisherRetryTimerRef.current = setTimeout(() => startPublisher(mediaStream), delayMs);
-            }
+            schedulePublisherReconnect('ws_close');
           };
         } catch (e) {
           console.error('[InterviewSession Publisher] Failed to start publisher', e);
@@ -583,23 +660,6 @@ const InterviewSession = () => {
     }
   }, [consentStorageKey]);
 
-  useEffect(() => {
-    if (!consentStorageKey || consentData || !isInterviewActive) return;
-    const fallbackConsent: ConsentData = {
-      screenRecording: true,
-      audioRecording: true,
-      videoRecording: false,
-      dataProcessing: true,
-      termsAccepted: true,
-      proctoringPolicyAccepted: true,
-    };
-    console.info('[InterviewSession Recorder] consent missing; applying fallback consent for active session');
-    setConsentData(fallbackConsent);
-    try {
-      localStorage.setItem(consentStorageKey, JSON.stringify(fallbackConsent));
-    } catch {
-    }
-  }, [consentStorageKey, consentData, isInterviewActive]);
 
   useEffect(() => {
     if (!isInterviewActive) return;
@@ -679,7 +739,7 @@ const InterviewSession = () => {
   }, [consentData?.screenRecording, effectiveSubmissionId, isInterviewActive, startScreenRecording]);
 
   // Consent Phase
-  if (state.phase === 'consent') {
+  if (state.phase === 'consent' || forceConsentGate) {
     if (!submissionId) {
       return (
         <div className="new-frontend-theme min-h-screen bg-[var(--surface)] flex items-center justify-center" style={interviewThemeVars}>

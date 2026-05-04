@@ -14,6 +14,7 @@ Raises:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Optional, Tuple
 
 from sqlalchemy import text
@@ -42,15 +43,22 @@ class SubmissionRepository:
         self,
         submission_id: int,
         candidate_id: int,
+        consent_payload: Optional[dict] = None,
         actor: Optional[str] = None,
     ) -> Tuple[object, bool]:
         """pending → in_progress (idempotent if already in_progress)."""
+        extra_updates = "started_at = now(), consent_captured = true"
+        extra_params = None
+        if consent_payload is not None:
+            extra_updates = f"{extra_updates}, consent_payload = CAST(:consent_payload AS JSONB)"
+            extra_params = {"consent_payload": json.dumps(consent_payload)}
         return self._do_transition(
             submission_id=submission_id,
             expected_status=SubmissionStatus.PENDING,
             target_status=SubmissionStatus.IN_PROGRESS,
             idempotent_status=SubmissionStatus.IN_PROGRESS,
-            extra_updates="started_at = now(), consent_captured = true",
+            extra_updates=extra_updates,
+            extra_params=extra_params,
             candidate_id=candidate_id,
             actor=actor,
         )
@@ -163,6 +171,7 @@ class SubmissionRepository:
         target_status: SubmissionStatus,
         idempotent_status: SubmissionStatus,
         extra_updates: str = "",
+        extra_params: Optional[dict] = None,
         candidate_id: Optional[int] = None,
         actor: Optional[str] = None,
     ) -> Tuple[object, bool]:
@@ -200,6 +209,8 @@ class SubmissionRepository:
             "expected": expected_status.value,
             "expected_version": current_version,
         }
+        if extra_params:
+            params.update(extra_params)
         if candidate_id is not None:
             # Enforce ownership: only the owning candidate can transition
             where_clause += " AND candidate_id = :cid"

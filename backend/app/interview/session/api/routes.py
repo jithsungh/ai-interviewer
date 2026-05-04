@@ -79,6 +79,7 @@ def start_interview(
             submission_id=body.submission_id,
             candidate_id=identity.candidate_id,
             consent_accepted=body.consent_accepted,
+            consent_payload=body.consent_payload,
         )
     except StateTransitionError as exc:
         raise ConflictError(str(exc))

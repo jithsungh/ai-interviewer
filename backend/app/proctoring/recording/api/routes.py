@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, UploadFile, status, Form
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,7 @@ async def _upload_to_azure_blob(
 async def upload_screen_recording(
     submission_id: int,
     recording: UploadFile = File(...),
+    duration_ms: int | None = Form(None),
     session: Session = Depends(get_db_session_with_commit),
     identity: IdentityContext = Depends(get_identity),
 ) -> dict:
@@ -85,6 +86,7 @@ async def upload_screen_recording(
             storage_path=storage_path,
             mime_type=recording.content_type or 'video/webm',
             file_size_bytes=size_bytes,
+            duration_ms=duration_ms,
             upload_started_at=started_at,
             upload_completed_at=completed_at,
         )
@@ -96,10 +98,44 @@ async def upload_screen_recording(
             "artifactId": artifact_id,
             "storagePath": storage_path,
             "sizeBytes": size_bytes,
+            "duration_ms": duration_ms,
         }
     except Exception as exc:
         logger.error(f"Failed to persist recording for submission {submission_id}: {exc}", exc_info=True)
         raise
+
+
+@router.get(
+    "/recordings/{submission_id}",
+    status_code=status.HTTP_200_OK,
+    summary="List recording artifacts for a submission",
+)
+async def list_recordings(
+    submission_id: int,
+    session: Session = Depends(get_db_session_with_commit),
+    identity: IdentityContext = Depends(get_identity),
+):
+    """Return all persisted recording artifacts for a submission (newest first)."""
+    records = (
+        session.query(ProctoringRecordingModel)
+        .filter(ProctoringRecordingModel.interview_submission_id == submission_id)
+        .order_by(desc(ProctoringRecordingModel.created_at), desc(ProctoringRecordingModel.id))
+        .all()
+    )
+
+    return [
+        {
+            "artifact_id": rec.artifact_id,
+            "storage_path": rec.storage_path,
+            "mime_type": rec.mime_type,
+            "file_size_bytes": rec.file_size_bytes,
+            "duration_ms": rec.duration_ms,
+            "upload_started_at": rec.upload_started_at,
+            "upload_completed_at": rec.upload_completed_at,
+            "created_at": rec.created_at,
+        }
+        for rec in records
+    ]
 
 
 @router.get(
@@ -187,6 +223,7 @@ async def get_latest_recording(
         "storage_path": rec.storage_path,
         "mime_type": rec.mime_type,
         "file_size_bytes": rec.file_size_bytes,
+        "duration_ms": rec.duration_ms,
         "created_at": rec.created_at,
     }
 

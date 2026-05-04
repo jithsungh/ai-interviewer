@@ -231,36 +231,70 @@ async def get_review_queue(
 async def get_monitoring_sessions(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(
+        None,
+        description="Comma-separated statuses to include (e.g. in_progress,completed)",
+    ),
+    window_id: Optional[int] = Query(None, description="Filter by interview window id"),
     session: Session = Depends(get_db_session),
     identity: IdentityContext = Depends(require_admin),
 ) -> MonitoringSessionsResponse:
     """
-    List in-progress submissions for live monitoring.
+    List monitoring sessions for live/completed views.
 
-    Includes proctoring risk and flag state for alert filtering.
+    Includes proctoring risk, status, and window metadata for grouping.
     """
+    default_statuses = ["in_progress", "completed", "reviewed"]
+    allowed_statuses = {"pending", "in_progress", "completed", "expired", "cancelled", "reviewed"}
+    status_list = [s.strip() for s in status.split(",") if s.strip()] if status else default_statuses
+    status_list = [s for s in status_list if s in allowed_statuses]
+
+    if not status_list:
+        return MonitoringSessionsResponse(total=0, items=[], limit=limit, offset=offset)
+
+    where_clauses = ["s.status::text = ANY(:statuses)"]
+    params: dict = {"statuses": status_list, "limit": limit, "offset": offset}
+    if window_id is not None:
+        where_clauses.append("s.window_id = :window_id")
+        params["window_id"] = window_id
+
+    where_sql = " AND ".join(where_clauses)
+
     count_result = session.execute(
         sql_text(
-            "SELECT COUNT(*) FROM interview_submissions WHERE status = 'in_progress'"
-        )
+            f"""
+            SELECT COUNT(*)
+            FROM interview_submissions s
+            WHERE {where_sql}
+            """
+        ),
+        params,
     ).scalar() or 0
 
     rows = session.execute(
         sql_text(
-            """
+            f"""
             SELECT
-                id AS submission_id,
-                COALESCE(proctoring_risk_score, 0) AS total_risk,
-                COALESCE(proctoring_risk_classification, 'low') AS classification,
-                COALESCE(proctoring_flagged, FALSE) AS flagged,
-                COALESCE(proctoring_reviewed, FALSE) AS reviewed
-            FROM interview_submissions
-            WHERE status = 'in_progress'
-            ORDER BY started_at DESC NULLS LAST, id DESC
+                s.id AS submission_id,
+                COALESCE(s.proctoring_risk_score, 0) AS total_risk,
+                COALESCE(s.proctoring_risk_classification, 'low') AS classification,
+                COALESCE(s.proctoring_flagged, FALSE) AS flagged,
+                COALESCE(s.proctoring_reviewed, FALSE) AS reviewed,
+                s.status AS submission_status,
+                s.window_id AS window_id,
+                w.name AS window_name,
+                w.start_time AS window_start_time,
+                w.end_time AS window_end_time,
+                s.started_at AS started_at,
+                s.submitted_at AS submitted_at
+            FROM interview_submissions s
+            LEFT JOIN interview_submission_windows w ON w.id = s.window_id
+            WHERE {where_sql}
+            ORDER BY s.started_at DESC NULLS LAST, s.id DESC
             LIMIT :limit OFFSET :offset
             """
         ),
-        {"limit": limit, "offset": offset},
+        params,
     ).fetchall()
 
     repo = ProctoringEventRepository(session)
@@ -275,6 +309,13 @@ async def get_monitoring_sessions(
                 event_count=event_count,
                 flagged=bool(row.flagged),
                 reviewed=bool(row.reviewed),
+                submission_status=row.submission_status,
+                window_id=row.window_id,
+                window_name=row.window_name,
+                window_start_time=row.window_start_time,
+                window_end_time=row.window_end_time,
+                started_at=row.started_at,
+                submitted_at=row.submitted_at,
             )
         )
 

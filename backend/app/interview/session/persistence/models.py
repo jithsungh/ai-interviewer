@@ -42,6 +42,7 @@ class InterviewSubmissionModel(Base):
     status = Column(String(20), nullable=False, server_default=text("'pending'"))
     final_score = Column(Numeric, nullable=True)
     consent_captured = Column(Boolean, nullable=False, server_default=text("false"))
+    consent_payload = Column(JSONB, nullable=True)
     scheduled_start = Column(DateTime(timezone=True), nullable=True)
     scheduled_end = Column(DateTime(timezone=True), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)

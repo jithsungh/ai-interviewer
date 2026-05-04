@@ -80,7 +80,15 @@ class ReviewQueueResponse(BaseModel):
 
 
 class MonitoringSessionItem(ReviewQueueItem):
-    """Single item in the live monitoring sessions list."""
+    """Single item in the monitoring sessions list."""
+
+    submission_status: str = Field(..., description="Submission status")
+    window_id: Optional[int] = Field(None, description="Interview window id")
+    window_name: Optional[str] = Field(None, description="Interview window name")
+    window_start_time: Optional[datetime] = None
+    window_end_time: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
 
 
 class MonitoringSessionsResponse(BaseModel):

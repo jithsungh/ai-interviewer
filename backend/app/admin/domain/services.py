@@ -1245,6 +1245,17 @@ class WindowService:
         total = self._windows.count_for_organization(org_id)
         return windows, total
 
+    def list_window_mappings(
+        self, window_id: int, identity: IdentityContext,
+    ) -> List[WindowRoleTemplate]:
+        window = self._windows.get_by_id(window_id)
+        if window is None:
+            raise NotFoundError(resource_type="Window", resource_id=window_id)
+
+        authorize_admin_operation(identity, operation="GET", resource_org_id=window.organization_id)
+
+        return self._windows.get_mappings(window_id)
+
     # ── Commands ───────────────────────────────────────────────────────
 
     def create_window(

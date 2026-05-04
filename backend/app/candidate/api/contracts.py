@@ -93,6 +93,20 @@ class CandidateWindowListResponse(BaseModel):
     pagination: PaginationMeta
 
 
+class StartWindowInterviewRequest(BaseModel):
+    """Request body for starting a window-based interview submission."""
+    role_template_id: int = Field(..., gt=0)
+
+
+class StartWindowInterviewResponse(BaseModel):
+    """Response for window-based interview submission creation."""
+    submission_id: int
+    window_id: int
+    role_id: int
+    template_id: int
+    status: str
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Gap 2: Candidate Submission History
 # ════════════════════════════════════════════════════════════════════════

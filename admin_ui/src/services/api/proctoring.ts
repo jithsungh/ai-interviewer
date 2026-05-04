@@ -11,6 +11,7 @@ import type {
   RiskScoreResponse,
   ProctoringEventResponse,
   LatestProctoringRecordingResponse,
+  ProctoringRecordingArtifactResponse,
 } from '@/types/admin-api';
 
 export const proctoringApi = {
@@ -36,11 +37,13 @@ export const proctoringApi = {
    */
   getMonitoringSessions: async (
     token: string,
-    params?: { limit?: number; offset?: number },
+    params?: { limit?: number; offset?: number; status?: string; window_id?: number },
   ): Promise<ProctoringMonitoringSessionsResponse> => {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', String(params.limit));
     if (params?.offset) query.append('offset', String(params.offset));
+    if (params?.status) query.append('status', params.status);
+    if (typeof params?.window_id === 'number') query.append('window_id', String(params.window_id));
     const queryString = query.toString();
     const endpoint = queryString
       ? `/api/v1/proctoring/monitoring-sessions?${queryString}`
@@ -80,6 +83,17 @@ export const proctoringApi = {
     token: string,
   ): Promise<LatestProctoringRecordingResponse> => {
     return adminApiClient.get(`/api/v1/proctoring/recordings/${submissionId}/latest`, token);
+  },
+
+  /**
+   * List recording artifacts for a submission.
+   * GET /api/v1/proctoring/recordings/{submission_id}
+   */
+  getRecordings: async (
+    submissionId: number,
+    token: string,
+  ): Promise<ProctoringRecordingArtifactResponse[]> => {
+    return adminApiClient.get(`/api/v1/proctoring/recordings/${submissionId}`, token);
   },
 
   /**

@@ -27,12 +27,12 @@ Invariants enforced:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.admin.persistence.models import CodingProblemModel, QuestionModel
+from app.admin.persistence.models import CodingProblemModel, InterviewTemplateModel, QuestionModel
 from app.interview.orchestration.contracts import (
     CodeCompletionSignal,
     NextQuestionResult,
@@ -568,10 +568,26 @@ class RealtimeEventHandler:
         self, submission: InterviewSubmissionModel
     ) -> Optional[int]:
         """Compute seconds remaining until scheduled_end."""
-        if not submission.scheduled_end:
-            return None
         now = datetime.now(timezone.utc)
         end = submission.scheduled_end
+
+        duration_end = None
+        if submission.started_at and submission.template_id:
+            template = (
+                self._db.query(InterviewTemplateModel)
+                .filter(InterviewTemplateModel.id == submission.template_id)
+                .first()
+            )
+            if template and template.total_estimated_time_minutes:
+                duration_end = submission.started_at + timedelta(
+                    minutes=template.total_estimated_time_minutes
+                )
+
+        if duration_end is not None:
+            end = duration_end if end is None else min(end, duration_end)
+
+        if end is None:
+            return None
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
         remaining = int((end - now).total_seconds())

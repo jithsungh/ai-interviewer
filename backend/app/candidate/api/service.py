@@ -65,6 +65,7 @@ from app.candidate.api.contracts import (
     SessionSummaryDTO,
     SkillBreakdownItem,
     StartPracticeResponse,
+    StartWindowInterviewResponse,
     SubmissionOrganizationDTO,
     SubmissionRoleDTO,
     SubmissionTemplateDTO,
@@ -752,7 +753,6 @@ class CandidateService:
 
         if not question_pool:
             raise AppValidationError("No practice questions are available for the selected filters")
-
         flashcards, source, provider, model_name = self._practice_generator.generate_flashcards(
             role=role,
             industry=industry,
@@ -776,6 +776,29 @@ class CandidateService:
             model_name=model_name,
         )
         return self._to_practice_deck_response(deck)
+
+    def start_window_interview(
+        self,
+        user_id: int,
+        window_id: int,
+        role_template_id: int,
+    ) -> StartWindowInterviewResponse:
+        try:
+            submission = self._repo.create_window_submission(
+                user_id=user_id,
+                window_id=window_id,
+                role_template_id=role_template_id,
+            )
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
+
+        return StartWindowInterviewResponse(
+            submission_id=submission.id,
+            window_id=submission.window_id,
+            role_id=submission.role_id,
+            template_id=submission.template_id,
+            status=submission.status,
+        )
 
     def get_active_practice_deck(self, user_id: int) -> PracticeFlashcardDeckActiveResponse:
         deck = self._repo.get_active_practice_deck(user_id)

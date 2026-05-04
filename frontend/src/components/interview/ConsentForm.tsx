@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 interface ConsentFormProps {
-  onConsent: (consent: ConsentData) => void;
+  onConsent: (consent: ConsentData, screenStream: MediaStream | null) => void;
   onCancel: () => void;
   interviewType: string;
   duration: number;
@@ -63,8 +63,8 @@ export const ConsentForm = ({
 
   const hasPermissionApi = Boolean(navigator?.mediaDevices?.getUserMedia);
 
-  // Screen recording and audio are always required (enforced by default)  
-  // Just check the policy & data consents
+  // Screen recording and audio are always required (enforced by default)
+  // Consent checks gate submit; permissions are validated on submit.
   const isValid = consent.dataProcessing
     && consent.termsAccepted
     && consent.proctoringPolicyAccepted;
@@ -92,19 +92,19 @@ export const ConsentForm = ({
     if (!isValid) return;
 
     const ensurePermissionsAndContinue = async () => {
-      // Auto-request permissions for enabled features.
-      // Screen share prompt is handled once, when recording starts.
+      const screenStream = await requestScreenPermission(true);
       const cameraReady = consent.videoRecording ? await requestCameraPermission() : true;
       const micReady = consent.audioRecording ? await requestMicrophonePermission() : true;
 
-      // Only proceed if all required permissions are ready
-      if (micReady && cameraReady) {
-        onConsent(consent);
-      } else {
-        // Show user which permission failed
-        if (!micReady) {
-          alert('Microphone access is required for this interview. Please grant audio access and try again.');
-        }
+      if (micReady && cameraReady && screenStream) {
+        onConsent(consent, screenStream);
+        return;
+      }
+
+      if (!screenStream) {
+        alert('Full-screen sharing is required. Please choose Entire Screen and try again.');
+      } else if (!micReady) {
+        alert('Microphone access is required for this interview. Please grant audio access and try again.');
       }
     };
 
@@ -165,10 +165,10 @@ export const ConsentForm = ({
     }
   };
 
-  const requestScreenPermission = async (): Promise<boolean> => {
+  const requestScreenPermission = async (persistStream = false): Promise<MediaStream | null> => {
     if (!navigator.mediaDevices?.getDisplayMedia) {
       updatePermissionStatus('screen', 'unsupported', 'Screen-share API is unavailable in this browser.');
-      return false;
+      return null;
     }
 
     updatePermissionStatus('screen', 'checking');
@@ -181,15 +181,17 @@ export const ConsentForm = ({
       if (displaySurface !== 'monitor') {
         stream.getTracks().forEach((t) => t.stop());
         updatePermissionStatus('screen', 'denied', 'Only full-screen sharing is allowed. Please choose Entire Screen.');
-        return false;
+        return null;
       }
 
-      stream.getTracks().forEach((track) => track.stop());
+      if (!persistStream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       updatePermissionStatus('screen', 'granted');
-      return true;
+      return stream;
     } catch (error) {
       updatePermissionStatus('screen', 'denied', error instanceof Error ? error.message : 'Screen-share permission was denied.');
-      return false;
+      return null;
     }
   };
 
@@ -228,8 +230,8 @@ export const ConsentForm = ({
       key: 'videoRecording' as keyof ConsentData,
       icon: Video,
       title: 'Video Recording',
-      description: 'Record video for proctoring and behavioral analysis (optional).',
-      required: false
+      description: 'Record video for proctoring and behavioral analysis.',
+      required: true
     },
     {
       key: 'dataProcessing' as keyof ConsentData,
@@ -374,7 +376,7 @@ export const ConsentForm = ({
                     <span style={{ fontSize: '0.86rem', fontWeight: 700, color: '#09111F' }}>Screen Share</span>
                     {renderPermissionBadge(permissions.screen)}
                   </div>
-                  <Button variant="outline" size="sm" onClick={requestScreenPermission}>Check Screen</Button>
+                  <Button variant="outline" size="sm" onClick={() => void requestScreenPermission()}>Check Screen</Button>
                   <p style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 6 }}>
                     Only Entire Screen is accepted (window/tab sharing will be rejected).
                   </p>

@@ -275,6 +275,19 @@ export interface APICandidateWindowListResponse {
   pagination: PaginationMeta;
 }
 
+// ---- Candidate Window Start ----
+export interface APIStartWindowInterviewRequest {
+  role_template_id: number;
+}
+
+export interface APIStartWindowInterviewResponse {
+  submission_id: number;
+  window_id: number;
+  role_id: number;
+  template_id: number;
+  status: string;
+}
+
 // ---- Candidate Submissions ----
 export interface APISubmissionWindowDTO {
   id: number;

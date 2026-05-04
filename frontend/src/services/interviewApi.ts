@@ -14,6 +14,7 @@ import type {
 export async function startInterview(data: {
   submission_id: number;
   consent_accepted: boolean;
+  consent_payload?: Record<string, unknown> | null;
 }): Promise<APIInterviewSessionDTO> {
   return apiClient.post<APIInterviewSessionDTO>('/interviews/sessions/start', data);
 }

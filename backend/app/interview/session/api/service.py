@@ -57,6 +57,7 @@ class SessionService:
         submission_id: int,
         candidate_id: int,
         consent_accepted: bool,
+        consent_payload: Optional[dict] = None,
     ) -> Tuple[InterviewSessionDTO, bool]:
         """
         Start an interview: pending → in_progress.
@@ -73,6 +74,7 @@ class SessionService:
             sub, transitioned = self._repo.transition_to_in_progress(
                 submission_id,
                 candidate_id,
+                consent_payload=consent_payload,
                 actor=f"candidate:{candidate_id}",
             )
 

@@ -57,7 +57,10 @@ export function validateTemplateRequest(req: Partial<TemplateCreateRequest>): {
  * Validates interview window creation request
  * SRS refs: FR-2.3 (strict schedule enforcement), FR-2.5 (timezone-safe windows)
  */
-export function validateWindowRequest(req: Partial<InterviewWindowCreateRequest>): {
+export function validateWindowRequest(
+  req: Partial<InterviewWindowCreateRequest>,
+  options: { requireMappings?: boolean } = {},
+): {
   valid: boolean;
   errors: Record<string, string>;
 } {
@@ -70,40 +73,75 @@ export function validateWindowRequest(req: Partial<InterviewWindowCreateRequest>
     errors.name = 'Window name must be less than 255 characters';
   }
 
-  // Template ID validation
-  if (!req.template_id || req.template_id <= 0) {
-    errors.template_id = 'Valid template selection is required';
+  // Scope validation
+  if (!req.scope || !['global', 'local', 'only_invited'].includes(req.scope)) {
+    errors.scope = 'Valid window scope is required';
   }
 
-  // Date validation - must be ISO format
-  if (!req.start_date) {
-    errors.start_date = 'Start date is required';
-  } else if (!isValidISODate(req.start_date)) {
+  // Timezone validation
+  if (!req.timezone || req.timezone.trim().length === 0) {
+    errors.timezone = 'Timezone is required';
+  } else if (req.timezone.length > 50) {
+    errors.timezone = 'Timezone must be less than 50 characters';
+  }
+
+  // Date/time validation
+  if (!req.start_time && !req.start_date) {
+    errors.start_time = 'Start time is required';
+  } else if (req.start_time && !isValidISODateTime(req.start_time)) {
+    errors.start_time = 'Start time must be a valid datetime';
+  } else if (req.start_date && !isValidISODate(req.start_date)) {
     errors.start_date = 'Start date must be a valid date (YYYY-MM-DD)';
   }
 
-  if (!req.end_date) {
-    errors.end_date = 'End date is required';
-  } else if (!isValidISODate(req.end_date)) {
+  if (!req.end_time && !req.end_date) {
+    errors.end_time = 'End time is required';
+  } else if (req.end_time && !isValidISODateTime(req.end_time)) {
+    errors.end_time = 'End time must be a valid datetime';
+  } else if (req.end_date && !isValidISODate(req.end_date)) {
     errors.end_date = 'End date must be a valid date (YYYY-MM-DD)';
   }
 
-  // Validate start < end
-  if (req.start_date && req.end_date) {
-    const start = new Date(req.start_date);
-    const end = new Date(req.end_date);
+  // Validate start < end when both are present
+  if ((req.start_time || req.start_date) && (req.end_time || req.end_date)) {
+    const startValue = req.start_time || `${req.start_date}T00:00:00Z`;
+    const endValue = req.end_time || `${req.end_date}T23:59:59Z`;
+    const start = new Date(startValue);
+    const end = new Date(endValue);
     if (start >= end) {
-      errors.end_date = 'End date must be after start date';
+      errors.end_time = 'End time must be after start time';
     }
   }
 
-  // Max candidates validation
-  if (req.max_candidates !== undefined && req.max_candidates !== null) {
-    const max = Number(req.max_candidates);
-    if (max < 0) {
-      errors.max_candidates = 'Max candidates cannot be negative';
-    } else if (max > 10000) {
-      errors.max_candidates = 'Max candidates cannot exceed 10000';
+  // Max allowed submissions validation
+  if (req.max_allowed_submissions !== undefined && req.max_allowed_submissions !== null) {
+    const max = Number(req.max_allowed_submissions);
+    if (max <= 0) {
+      errors.max_allowed_submissions = 'Max submissions must be greater than 0';
+    } else if (max > 100000) {
+      errors.max_allowed_submissions = 'Max submissions cannot exceed 100000';
+    }
+  }
+
+  if (options.requireMappings) {
+    if (!req.mappings || req.mappings.length === 0) {
+      errors.mappings = 'Add at least one role and template mapping';
+    } else {
+      const seenRoles = new Set<number>();
+      req.mappings.forEach((mapping, index) => {
+        if (!mapping.role_id || mapping.role_id <= 0) {
+          errors[`mappings.${index}.role_id`] = 'Role selection is required';
+        }
+        if (!mapping.template_id || mapping.template_id <= 0) {
+          errors[`mappings.${index}.template_id`] = 'Template selection is required';
+        }
+        if (mapping.role_id) {
+          if (seenRoles.has(mapping.role_id)) {
+            errors[`mappings.${index}.role_id`] = 'Each role can only be selected once';
+          }
+          seenRoles.add(mapping.role_id);
+        }
+      });
     }
   }
 

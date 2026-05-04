@@ -69,6 +69,7 @@ class ProctoringRecordingModel(Base):
     storage_path = Column(Text, nullable=False)
     mime_type = Column(Text, nullable=False, server_default=text("'video/webm'"))
     file_size_bytes = Column(BigInteger, nullable=False)
+    duration_ms = Column(BigInteger, nullable=True)
     upload_started_at = Column(DateTime(timezone=True), nullable=True)
     upload_completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

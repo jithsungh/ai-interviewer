@@ -571,7 +571,7 @@ const CandidateDashboard = () => {
                 </div>
               ) : (
                 upcomingWindows.map((window) => (
-                  <Link key={window.id} to={`/candidate/interviews/${window.id}`}>
+                  <Link key={window.id} to={`/interview/lobby?window_id=${window.id}`}>
                     <div className="p-4 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer">
                       <div className="flex items-start justify-between mb-2">
                         <h3 className="font-medium text-sm">{window.name}</h3>

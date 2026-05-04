@@ -99,12 +99,19 @@ class IngestionService:
             consecutive_count=clustering_context["consecutive"],
         )
 
+        applied_weight = enriched.applied_weight
+        if event.event_type == "screen_share_off_time":
+            duration_ms = (event.metadata or {}).get("off_duration_ms")
+            if isinstance(duration_ms, (int, float)) and duration_ms > 0:
+                off_minutes = duration_ms / 60000.0
+                applied_weight = min(10.0, off_minutes * 0.5)
+
         # 4. Persist
         model = self._repo.create(
             interview_submission_id=event.submission_id,
             event_type=enriched.event_type,
             severity=enriched.applied_severity,
-            risk_weight=enriched.applied_weight,
+            risk_weight=applied_weight,
             evidence={
                 **(event.metadata or {}),
                 "rule_version": enriched.rule_version,
@@ -112,6 +119,7 @@ class IngestionService:
                 "base_weight": enriched.base_weight,
                 "clustering_detected": enriched.clustering_detected,
                 "clustering_reason": enriched.clustering_reason,
+                "computed_weight": applied_weight,
             },
             occurred_at=enriched.occurred_at,
         )

@@ -18,7 +18,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.admin.domain.entities import (
@@ -697,12 +697,13 @@ class SqlWindowRepository:
             .filter(WindowRoleTemplateModel.role_id == role_id)
             .subquery()
         )
+        role_window_ids_select = select(role_window_ids.c.window_id)
 
         q = (
             self._session.query(InterviewSubmissionWindowModel)
             .filter(
                 InterviewSubmissionWindowModel.organization_id == organization_id,
-                InterviewSubmissionWindowModel.id.in_(role_window_ids),
+                InterviewSubmissionWindowModel.id.in_(role_window_ids_select),
                 InterviewSubmissionWindowModel.start_time < end_time,
                 InterviewSubmissionWindowModel.end_time > start_time,
             )

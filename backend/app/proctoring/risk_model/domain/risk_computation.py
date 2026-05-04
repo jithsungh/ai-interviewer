@@ -96,6 +96,9 @@ class RiskScore:
 # Risk computation functions (pure, deterministic)
 # ════════════════════════════════════════════════════════════════════════
 
+_RECORDING_SEGMENT_EVENT = "screen_recording_uploaded"
+_RECORDING_SEGMENT_WEIGHT = 0.5
+
 
 def compute_risk_score(
     submission_id: int,
@@ -157,6 +160,12 @@ def compute_risk_score(
 
     # Sum and cap
     total_risk = sum(w for _, w in effective_weights)
+
+    # Add incremental risk for multiple recording segments
+    segment_count = sum(1 for evt, _ in effective_weights if evt.event_type == _RECORDING_SEGMENT_EVENT)
+    if segment_count > 1:
+        total_risk += (segment_count - 1) * _RECORDING_SEGMENT_WEIGHT
+
     total_risk = min(total_risk, thresholds.max_cap)
 
     # Classify
@@ -170,6 +179,9 @@ def compute_risk_score(
             breakdown[evt.event_type] = {"count": 0, "total_weight": 0.0}
         breakdown[evt.event_type]["count"] += 1
         breakdown[evt.event_type]["total_weight"] += ew
+    if segment_count > 1:
+        breakdown.setdefault(_RECORDING_SEGMENT_EVENT, {"count": 0, "total_weight": 0.0})
+        breakdown[_RECORDING_SEGMENT_EVENT]["total_weight"] += (segment_count - 1) * _RECORDING_SEGMENT_WEIGHT
     # Round total_weight for readability
     for key in breakdown:
         breakdown[key]["total_weight"] = round(breakdown[key]["total_weight"], 4)

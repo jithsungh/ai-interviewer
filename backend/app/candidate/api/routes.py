@@ -41,6 +41,8 @@ from app.candidate.api.contracts import (
     CandidateSubmissionDetailResponse,
     CandidateSubmissionListResponse,
     CandidateWindowListResponse,
+        StartWindowInterviewRequest,
+        StartWindowInterviewResponse,
     GenerateCareerInsightsRequest,
     GenerateCareerInsightsResponse,
     GenerateCareerRoadmapRequest,
@@ -112,6 +114,26 @@ def list_windows(
         user_id=identity.user_id,
         page=page,
         per_page=per_page,
+    )
+
+
+@router.post(
+    "/windows/{window_id}/start",
+    response_model=StartWindowInterviewResponse,
+    summary="Create a submission for a window-based interview",
+    status_code=201,
+)
+def start_window_interview(
+    window_id: int,
+    body: StartWindowInterviewRequest,
+    db: Session = Depends(get_db_session_with_commit),
+    identity: IdentityContext = Depends(require_candidate),
+) -> StartWindowInterviewResponse:
+    svc = _build_service(db)
+    return svc.start_window_interview(
+        user_id=identity.user_id,
+        window_id=window_id,
+        role_template_id=body.role_template_id,
     )
 
 

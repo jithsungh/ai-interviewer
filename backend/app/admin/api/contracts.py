@@ -515,6 +515,12 @@ class WindowMappingResponse(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class WindowMappingListResponse(BaseModel):
+    """Response for GET /windows/{id}/mappings."""
+    data: List[WindowMappingResponse]
+    meta: MetaInfo = Field(default_factory=MetaInfo)
+
+
 class WindowResponse(BaseModel):
     """Single window in response payload."""
     id: int

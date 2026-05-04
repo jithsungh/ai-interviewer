@@ -17,7 +17,7 @@ import {
   FileText,
   CheckCircle2,
 } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { getCandidateWindows, getCandidateSubmissions } from '@/services/candidateService';
 import type { InterviewSubmissionWindow, InterviewSubmission } from '@/types/database';
 import { format, isAfter, isBefore } from 'date-fns';
@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 
 const Interviews = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const defaultTab = searchParams.get('tab') || 'upcoming';
   const [windows, setWindows] = useState<InterviewSubmissionWindow[]>([]);
   const [submissions, setSubmissions] = useState<InterviewSubmission[]>([]);
@@ -177,7 +178,19 @@ const Interviews = () => {
             ) : (
               <div className="space-y-4">
                 {upcomingWindows.map((window) => (
-                  <Card key={window.id} className="transition-shadow hover:shadow-md">
+                  <Card
+                    key={window.id}
+                    className="cursor-pointer transition-shadow hover:shadow-md"
+                    onClick={() => navigate(`/interview/lobby?window_id=${window.id}`)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(`/interview/lobby?window_id=${window.id}`);
+                      }
+                    }}
+                  >
                     <CardContent className="p-5 md:p-6">
                       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-3">
@@ -218,11 +231,15 @@ const Interviews = () => {
                           </p>
                         </div>
 
-                        <Link to={`/candidate/interviews/${window.id}`} className="md:self-start">
-                          <Button className="gap-2">
-                            View Details <ArrowRight className="h-4 w-4" />
-                          </Button>
-                        </Link>
+                        <Button
+                          className="gap-2 md:self-start"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/interview/lobby?window_id=${window.id}`);
+                          }}
+                        >
+                          Launch Interview <ArrowRight className="h-4 w-4" />
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
