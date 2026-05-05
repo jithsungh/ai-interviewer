@@ -165,6 +165,10 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
     );
 
     if (!enabled || !submissionId) {
+      console.debug('[LiveMonitoring] live stream disabled or missing submission', {
+        enabled,
+        submissionId,
+      });
       setStatus("idle");
       setError(null);
       reconnectAttemptRef.current = 0;
@@ -176,12 +180,14 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
     }
 
     if (!signalingBase) {
+      console.warn('[LiveMonitoring] missing signaling base URL');
       setStatus("unsupported");
       setError("Live WebRTC is not configured in this admin build.");
       return;
     }
 
     if (!window.RTCPeerConnection || !window.WebSocket) {
+      console.warn('[LiveMonitoring] WebRTC or WebSocket not available');
       setStatus("unsupported");
       setError("This browser does not support WebRTC playback.");
       return;
@@ -195,6 +201,13 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
     const signalingUrl = signalingBase.includes(":submissionId")
       ? signalingBase.replace(":submissionId", String(submissionId))
       : `${signalingBase.replace(/\/$/, "")}/${submissionId}`;
+
+    console.debug('[LiveMonitoring] signaling config', {
+      signalingBase,
+      signalingUrl,
+      submissionId,
+      enabled,
+    });
 
     const pc = new RTCPeerConnection({ iceServers });
     const ws = new WebSocket(signalingUrl);
@@ -296,6 +309,7 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
 
     pc.onicecandidate = (event) => {
       if (event.candidate && ws.readyState === WebSocket.OPEN) {
+        console.debug('[LiveMonitoring] sending ICE candidate');
         ws.send(JSON.stringify({
           type: "candidate",
           submission_id: submissionId,
@@ -317,6 +331,7 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
       try {
         message = JSON.parse(event.data);
       } catch {
+        console.warn('[LiveMonitoring] signaling message is not valid JSON');
         return;
       }
 
@@ -351,6 +366,7 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
         if (message.type === "candidate" || message.type === "ice-candidate" || message.candidate) {
           const candidate = message.candidate ?? message.ice_candidate;
           if (candidate) {
+            console.debug('[LiveMonitoring] adding ICE candidate');
             await pc.addIceCandidate(candidate);
           }
         }
@@ -373,7 +389,10 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
     };
 
     ws.onclose = () => {
-      console.debug("[LiveMonitoring] signaling WS closed");
+      console.debug("[LiveMonitoring] signaling WS closed", {
+        readyState: ws.readyState,
+        cleanedUp,
+      });
       if (!cleanedUp) {
         setStatus("failed");
         scheduleReconnect();
