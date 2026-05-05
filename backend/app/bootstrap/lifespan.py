@@ -12,7 +12,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings as global_settings
-from app.shared.observability import get_context_logger
+from app.shared.observability import (
+    ObservabilityConfig,
+    configure_structured_logging,
+    get_context_logger,
+)
 from app.persistence.postgres import (
     init_engine,
     init_session_factory,
@@ -61,6 +65,14 @@ async def lifespan(app: FastAPI):
         settings = Settings.load()
     else:
         settings = global_settings
+
+    observability = ObservabilityConfig()
+    configure_structured_logging(
+        log_level=observability.log_level,
+        enable_console=observability.enable_console_logging,
+        enable_file=observability.enable_file_logging,
+        log_file_path=observability.log_file_path,
+    )
     
     # ==================
     # STARTUP

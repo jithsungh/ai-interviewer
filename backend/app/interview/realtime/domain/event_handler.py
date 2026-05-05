@@ -492,8 +492,7 @@ class RealtimeEventHandler:
         )
 
         action = _map_intent_to_action(intent)
-        if action == "clarify" and not previous_answer.strip():
-            confidence = min(1.0, confidence + 0.2)
+        previous_empty = not previous_answer.strip()
         intent_logger.info(
             "Intent classified",
             event_type="intent_gap.classified",
@@ -503,6 +502,7 @@ class RealtimeEventHandler:
                 "confidence": confidence,
                 "action": action,
                 "gap_ms": gap_ms,
+                "previous_empty": previous_empty,
             },
         )
         events: List[Dict[str, Any]] = [
@@ -615,11 +615,17 @@ class RealtimeEventHandler:
         text = f"[Q] {question} [A_prev] {previous_answer} [A_last] {last_answer}"
 
         try:
-            from app.ml.inference import classify_probabilities
+            from app.ml.inference import LABELS, classify_probabilities
             from app.ml.model import get_intent_model
 
             model = get_intent_model()
             probabilities = await asyncio.to_thread(model.predict, text)
+            if len(probabilities) == len(LABELS):
+                probabilities = _apply_intent_prior(
+                    probabilities=probabilities,
+                    labels=LABELS,
+                    previous_empty=not previous_answer.strip(),
+                )
             result = classify_probabilities(probabilities)
             return result["intent"], float(result["confidence"])
         except Exception:
@@ -957,6 +963,8 @@ def _map_intent_to_action(intent: str) -> str:
         return "advance"
     if intent == "CLARIFICATION":
         return "clarify"
+    if intent == "UNKNOWN":
+        return "advance"
     return "wait"
 
 
@@ -990,6 +998,28 @@ def _strip_leading_phrase(text: str) -> str:
             return stripped[len(prefix):].lstrip(" :,-")
     return text
     return " ".join(words[:max_words]).strip()
+
+
+def _apply_intent_prior(
+    probabilities: List[float],
+    labels: List[str],
+    previous_empty: bool,
+    boost: float = 0.1,
+) -> List[float]:
+    boosted = list(probabilities)
+    if previous_empty:
+        for label in ("UNKNOWN", "CLARIFICATION"):
+            if label in labels:
+                boosted[labels.index(label)] = min(1.0, boosted[labels.index(label)] + boost)
+    else:
+        for label in ("THINKING", "DONE"):
+            if label in labels:
+                boosted[labels.index(label)] = min(1.0, boosted[labels.index(label)] + boost)
+
+    total = sum(boosted)
+    if total <= 0:
+        return probabilities
+    return [value / total for value in boosted]
 
 
 def _fallback_clarification(question: str) -> str:
