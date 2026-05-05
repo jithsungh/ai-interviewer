@@ -76,7 +76,6 @@ export const SpeakingQuestion = ({
     }
     return 4000;
   })();
-  const maxIntentGapMs = 15000;
   const { toast } = useToast();
   const interviewThemeVars: CSSProperties = {
     ['--primary' as any]: '#001938',
@@ -125,8 +124,6 @@ export const SpeakingQuestion = ({
   const recognitionRef = useRef<any>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const typingGapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const maxGapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const maxGapTokenRef = useRef(0);
   const lastGapSentAtRef = useRef<number | null>(null);
   const lastGapAnswerRef = useRef<string>('');
   const pendingClarificationRef = useRef<string | null>(null);
@@ -904,34 +901,6 @@ export const SpeakingQuestion = ({
       onAnswer?.(finalAnswer);
     }
   }, [isPaused, isSubmittingAnswer, onAnswer, onForceNext, stopListening, userResponse]);
-
-  useEffect(() => {
-    if (isPaused || isSubmittingAnswer || (!onAnswer && !onForceNext)) {
-      if (maxGapTimeoutRef.current) {
-        clearTimeout(maxGapTimeoutRef.current);
-        maxGapTimeoutRef.current = null;
-      }
-      return;
-    }
-
-    maxGapTokenRef.current += 1;
-    const token = maxGapTokenRef.current;
-    if (maxGapTimeoutRef.current) {
-      clearTimeout(maxGapTimeoutRef.current);
-    }
-    maxGapTimeoutRef.current = setTimeout(() => {
-      if (token !== maxGapTokenRef.current) return;
-      if (isPausedRef.current || isSubmittingAnswer) return;
-      handleForceNext();
-    }, maxIntentGapMs);
-
-    return () => {
-      if (maxGapTimeoutRef.current) {
-        clearTimeout(maxGapTimeoutRef.current);
-        maxGapTimeoutRef.current = null;
-      }
-    };
-  }, [handleForceNext, isPaused, isSubmittingAnswer, onAnswer, onForceNext, userResponse, interimText]);
 
   const toggleMute = () => {
     if (!isMuted) {
