@@ -38,6 +38,7 @@ from app.interview.realtime.contracts.events import (
     ErrorEvent,
     parse_client_event,
     HeartbeatEvent,
+    IntentGapEvent,
     JoinSessionEvent,
     RequestNextQuestionEvent,
     SubmitAnswerEvent,
@@ -256,6 +257,42 @@ async def _dispatch_event(
     Catches all errors and sends ErrorEvent to client.
     Fatal errors close the connection.
     """
+    def _summarize_event(evt) -> dict:
+        summary = {"event_type": getattr(evt, "event_type", "unknown")}
+
+        for field in (
+            "exchange_id",
+            "submission_id",
+            "response_time_ms",
+            "gap_ms",
+            "response_language",
+        ):
+            if hasattr(evt, field):
+                summary[field] = getattr(evt, field)
+
+        for text_field, summary_key in (
+            ("response_text", "response_text_len"),
+            ("response_code", "response_code_len"),
+            ("question", "question_len"),
+            ("previous_answer", "previous_answer_len"),
+            ("last_answer", "last_answer_len"),
+        ):
+            if hasattr(evt, text_field):
+                value = getattr(evt, text_field)
+                summary[summary_key] = len(value) if isinstance(value, str) else None
+
+        return summary
+
+    def _summarize_response(payload) -> dict:
+        if isinstance(payload, list):
+            return {
+                "count": len(payload),
+                "event_types": [item.get("event_type") for item in payload],
+            }
+        if isinstance(payload, dict):
+            return {"event_type": payload.get("event_type")}
+        return {"event_type": "unknown"}
+
     try:
         data = json.loads(raw_message)
     except json.JSONDecodeError as e:
@@ -278,9 +315,10 @@ async def _dispatch_event(
         await manager.send_event(submission_id, error_event.model_dump())
         return
 
-    ws_logger.debug(
+    ws_logger.info(
         f"Received event: {event.event_type}",
         event_type=f"ws.event.received.{event.event_type}",
+        metadata=_summarize_event(event),
     )
 
     # ── Heartbeat (no DB needed) ──────────────────────────────
@@ -333,11 +371,31 @@ async def _dispatch_event(
                 response_time_ms=event.response_time_ms,
             )
 
+        elif isinstance(event, IntentGapEvent):
+            response = await handler.handle_intent_gap(
+                exchange_id=event.exchange_id,
+                question=event.question,
+                previous_answer=event.previous_answer,
+                last_answer=event.last_answer,
+                gap_ms=event.gap_ms,
+                response_time_ms=event.response_time_ms,
+            )
+
         # Commit DB changes (exchange creation, progress updates)
         db.commit()
 
         if response:
-            await manager.send_event(submission_id, response)
+            if isinstance(response, list):
+                for payload in response:
+                    await manager.send_event(submission_id, payload)
+            else:
+                await manager.send_event(submission_id, response)
+
+            ws_logger.info(
+                f"Sent response for {event.event_type}",
+                event_type=f"ws.event.responded.{event.event_type}",
+                metadata=_summarize_response(response),
+            )
 
     except BaseError as e:
         db.rollback()
@@ -345,7 +403,7 @@ async def _dispatch_event(
         ws_logger.warning(
             f"Business error handling {event.event_type}: {e.message}",
             event_type=f"ws.event.error.{event.event_type}",
-            metadata={"error_code": e.error_code},
+            metadata={"error_code": e.error_code, "event": _summarize_event(event)},
         )
 
         error_event = ErrorEvent(
@@ -376,6 +434,7 @@ async def _dispatch_event(
             f"Unexpected error handling {event.event_type}: {e}",
             event_type=f"ws.event.error.unexpected.{event.event_type}",
             exc_info=True,
+            metadata={"event": _summarize_event(event)},
         )
 
         error_event = ErrorEvent(

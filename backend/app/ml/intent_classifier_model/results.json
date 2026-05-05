@@ -1,0 +1,17 @@
+{
+  "model": "distilbert-base-uncased",
+  "test_accuracy": 1.0,
+  "test_macro_f1": 1.0,
+  "per_class_f1": {
+    "UNKNOWN": 1.0,
+    "CLARIFICATION": 1.0,
+    "THINKING": 1.0,
+    "DONE": 1.0
+  },
+  "targets_met": {
+    "UNKNOWN": true,
+    "CLARIFICATION": true,
+    "THINKING": true,
+    "DONE": true
+  }
+}

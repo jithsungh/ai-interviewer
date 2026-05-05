@@ -140,6 +140,30 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Azure Blob Storage not configured, skipping", event_type="startup.blob.skipped")
 
+        # 6. Eager-load intent classifier
+        try:
+            from app.ml.model import get_intent_model
+
+            logger.info("Loading intent classifier model...", event_type="startup.intent_model.begin")
+            model = await asyncio.to_thread(get_intent_model)
+            app.state.intent_model = model
+            try:
+                warmup_text = "[Q] warmup [A_prev] warmup [A_last] warmup"
+                await asyncio.to_thread(model.predict, warmup_text)
+                logger.info("Intent model warmup complete", event_type="startup.intent_model.complete")
+            except Exception:
+                logger.warning(
+                    "Intent model warmup failed",
+                    event_type="startup.intent_model.warmup_failed",
+                    exc_info=True,
+                )
+        except Exception:
+            logger.error(
+                "Intent model preload failed",
+                event_type="startup.intent_model.failed",
+                exc_info=True,
+            )
+
         expiry_worker_enabled = os.getenv("INTERVIEW_EXPIRY_WORKER_ENABLED", "false").lower() == "true"
         expiry_worker_interval = int(os.getenv("INTERVIEW_EXPIRY_WORKER_INTERVAL_SECONDS", "60"))
         expiry_worker_batch = int(os.getenv("INTERVIEW_EXPIRY_WORKER_BATCH_SIZE", "500"))

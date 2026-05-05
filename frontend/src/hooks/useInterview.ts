@@ -16,6 +16,8 @@ import type {
   CodeExecutionCompleted,
   InterviewCompleted as InterviewCompletedEvent,
   ErrorEvent,
+  IntentDecision,
+  ClarificationResponse,
 } from '@/types/websocketEvents';
 import { toast } from '@/hooks/use-toast';
 
@@ -41,6 +43,8 @@ export interface InterviewState {
   timeRemainingSeconds: number | null;
   codeExecutionResult: CodeExecutionCompleted | null;
   completionData: InterviewCompletedEvent | null;
+  lastIntentDecision: IntentDecision | null;
+  lastClarification: ClarificationResponse | null;
   error: string | null;
   isConnected: boolean;
 }
@@ -55,6 +59,8 @@ const INITIAL_STATE: InterviewState = {
   timeRemainingSeconds: null,
   codeExecutionResult: null,
   completionData: null,
+  lastIntentDecision: null,
+  lastClarification: null,
   error: null,
   isConnected: false,
 };
@@ -88,6 +94,10 @@ export function useInterview(submissionId: number | null) {
   const socketRef = useRef<InterviewSocket | null>(null);
   const questionStartTimeRef = useRef<number>(Date.now());
   const questionLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNextQuestionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const awaitingNextQuestionRef = useRef(false);
+  const lastFinalAnswerRef = useRef<string>('');
+  const lastGapPayloadRef = useRef<{ exchangeId: number; lastAnswer: string } | null>(null);
   const restoreAttemptedRef = useRef(false);
   const resumeAfterConsentRef = useRef(false);
 
@@ -119,6 +129,14 @@ export function useInterview(submissionId: number | null) {
       clearTimeout(questionLoadTimeoutRef.current);
       questionLoadTimeoutRef.current = null;
     }
+  }, []);
+
+  const clearPendingNextQuestion = useCallback(() => {
+    if (pendingNextQuestionRef.current) {
+      clearTimeout(pendingNextQuestionRef.current);
+      pendingNextQuestionRef.current = null;
+    }
+    awaitingNextQuestionRef.current = false;
   }, []);
 
   const setTransitionLoading = useCallback((message?: string) => {
@@ -161,6 +179,7 @@ export function useInterview(submissionId: number | null) {
         onQuestionPayload: (event: QuestionPayload) => {
           console.log('📝 Question received:', event);
           clearQuestionLoadTimeout();
+          clearPendingNextQuestion();
           questionStartTimeRef.current = Date.now();
           setState(prev => ({
             ...prev,
@@ -168,6 +187,8 @@ export function useInterview(submissionId: number | null) {
             currentQuestion: event,
             currentSequence: event.sequence_order,
             codeExecutionResult: null,
+            lastIntentDecision: null,
+            lastClarification: null,
             error: null,
           }));
         },
@@ -182,7 +203,13 @@ export function useInterview(submissionId: number | null) {
             phase: 'question_loading',
           }));
           setQuestionLoadTimeout();
-          socketRef.current?.requestNextQuestion();
+          awaitingNextQuestionRef.current = true;
+          clearPendingNextQuestion();
+          pendingNextQuestionRef.current = setTimeout(() => {
+            if (awaitingNextQuestionRef.current) {
+              socketRef.current?.requestNextQuestion();
+            }
+          }, 600);
         },
 
         onCodeSubmissionAccepted: () => {
@@ -215,6 +242,24 @@ export function useInterview(submissionId: number | null) {
             progress: event.progress_percentage,
             currentSequence: event.current_sequence,
             totalQuestions: event.total_questions,
+          }));
+        },
+
+        onIntentDecision: (event: IntentDecision) => {
+          setState(prev => ({
+            ...prev,
+            lastIntentDecision: event,
+          }));
+
+          if (event.action === 'advance' && lastGapPayloadRef.current) {
+            lastFinalAnswerRef.current = lastGapPayloadRef.current.lastAnswer;
+          }
+        },
+
+        onClarificationResponse: (event: ClarificationResponse) => {
+          setState(prev => ({
+            ...prev,
+            lastClarification: event,
           }));
         },
 
@@ -342,7 +387,7 @@ export function useInterview(submissionId: number | null) {
         },
       },
     );
-  }, [clearQuestionLoadTimeout, navigate, state.currentQuestion, submissionId, setQuestionLoadTimeout]);
+  }, [clearPendingNextQuestion, clearQuestionLoadTimeout, navigate, state.currentQuestion, submissionId, setQuestionLoadTimeout]);
 
   const connectInterview = useCallback(() => {
     if (!submissionId) return;
@@ -453,9 +498,41 @@ export function useInterview(submissionId: number | null) {
     const question = state.currentQuestion;
     if (!socket || !question) return;
 
+    lastFinalAnswerRef.current = responseText;
     const responseTimeMs = Date.now() - questionStartTimeRef.current;
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
+  }, [state.currentQuestion]);
+
+  const sendIntentGap = useCallback((
+    lastAnswer: string,
+    gapMs: number,
+  ) => {
+    const socket = socketRef.current;
+    const question = state.currentQuestion;
+    if (!socket || !question) return;
+
+    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    const sentences = lastAnswer
+      .split('.')
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    const lastUtterance = sentences.length > 0 ? sentences[sentences.length - 1] : lastAnswer.trim();
+    const previousUtterance = sentences.length > 1 ? sentences[sentences.length - 2] : '';
+
+    lastGapPayloadRef.current = {
+      exchangeId: question.exchange_id,
+      lastAnswer: lastUtterance,
+    };
+
+    socket.sendIntentGap(
+      question.exchange_id,
+      question.question_text,
+      previousUtterance,
+      lastUtterance,
+      gapMs,
+      responseTimeMs,
+    );
   }, [state.currentQuestion]);
 
   const submitCode = useCallback((
@@ -504,15 +581,17 @@ export function useInterview(submissionId: number | null) {
   useEffect(() => {
     return () => {
       clearQuestionLoadTimeout();
+      clearPendingNextQuestion();
       socketRef.current?.disconnect();
     };
-  }, [clearQuestionLoadTimeout]);
+  }, [clearPendingNextQuestion, clearQuestionLoadTimeout]);
 
   return {
     state,
     startSession,
     submitAnswer,
     submitCode,
+    sendIntentGap,
     requestNextAfterCodeResult,
     endInterviewEarly,
     saveDraftAnswer,

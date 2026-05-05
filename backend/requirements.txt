@@ -44,6 +44,10 @@ numpy==1.26.3
 spacy==3.7.4
 vaderSentiment==3.3.2
 
+# Intent classification
+torch
+transformers
+
 # Utilities
 python-dateutil==2.8.2
 httpx==0.26.0  # Used for LLM provider API calls with timeout control

@@ -191,6 +191,7 @@ class LLMSettings(BaseSettings):
     llm_model_evaluation: str = Field(default="qwen/qwen3-32b", env="LLM_MODEL_EVALUATION")
     llm_model_resume_parsing: str = Field(default="qwen/qwen3-32b", env="LLM_MODEL_RESUME_PARSING")
     llm_model_report_generation: str = Field(default="qwen/qwen3-32b", env="LLM_MODEL_REPORT_GENERATION")
+    llm_model_clarification: str = Field(default="qwen/qwen3-32b", env="LLM_MODEL_CLARIFICATION")
     
     # Model parameters
     llm_temperature: float = Field(default=0.7, env="LLM_TEMPERATURE")

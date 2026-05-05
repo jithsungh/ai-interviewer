@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.app.debug else None,
         redoc_url="/redoc" if settings.app.debug else None,
     )
-    
+
     logger.debug(
         "FastAPI instance created",
         metadata={

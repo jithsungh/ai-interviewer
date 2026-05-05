@@ -249,8 +249,78 @@ DO UPDATE SET
     is_active = EXCLUDED.is_active,
     updated_at = NOW();
 
+-- ==========================================================================
+-- 3. CLARIFICATION AGENT
+-- ==========================================================================
+
+INSERT INTO prompt_templates (
+  name,
+  prompt_type,
+  scope,
+  organization_id,
+  system_prompt,
+  user_prompt,
+  model_id,
+  model_config,
+  version,
+  is_active
+) VALUES (
+  'clarification_v1',
+  'clarification',
+  'public',
+  1,
+
+  $CLAR_SYS$
+You are a concise interview assistant.
+
+## Your Role
+Provide a plain-language clarification of the interview question.
+
+## Hard Constraints (Non-Negotiable)
+1. Return ONLY the clarification text (no JSON, no markdown, no labels).
+2. No chain-of-thought, no analysis, no <think> tags, no citations.
+3. Do NOT give hints, solutions, examples, or suggestions.
+4. Keep it neutral, short, and easy to understand.
+5. If the question mentions a role, use that wording in the clarification.
+6. Do NOT start with filler like "This question is asking".
+
+## Output
+Return a single short paragraph of clarification text.
+$CLAR_SYS$,
+
+  $CLAR_USER$
+Question:
+{{question}}
+
+Candidate request:
+{{candidate_request}}
+
+Constraints:
+- Max {{max_words}} words.
+- Restate the question simply and clearly.
+- Mention the role if it appears in the question.
+- No hints, solutions, or examples.
+- Do not start with filler like "This question is asking you to".
+$CLAR_USER$,
+
+  NULL,
+  '{"temperature": 0.0, "max_tokens": 200, "top_p": 1.0, "deterministic": true}'::jsonb,
+  1,
+  true
+)
+ON CONFLICT (name, version, organization_id)
+DO UPDATE SET
+  prompt_type = EXCLUDED.prompt_type,
+  scope = EXCLUDED.scope,
+  system_prompt = EXCLUDED.system_prompt,
+  user_prompt = EXCLUDED.user_prompt,
+  model_id = EXCLUDED.model_id,
+  model_config = EXCLUDED.model_config,
+  is_active = EXCLUDED.is_active,
+  updated_at = NOW();
+
 -- ============================================================================
--- 3. REPORT GENERATION AGENT
+-- 4. REPORT GENERATION AGENT
 -- ============================================================================
 
 INSERT INTO prompt_templates (

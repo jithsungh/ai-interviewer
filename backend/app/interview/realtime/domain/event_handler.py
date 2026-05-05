@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
+
+import asyncio
 
 from sqlalchemy.orm import Session
 
@@ -53,6 +55,8 @@ from app.interview.realtime.contracts.events import (
     ErrorEvent,
     HeartbeatAckEvent,
     InterviewCompletedEvent,
+    ClarificationResponseEvent,
+    IntentDecisionEvent,
     ProgressUpdateEvent,
     QuestionPayloadEvent,
     SessionJoinedEvent,
@@ -367,6 +371,191 @@ class RealtimeEventHandler:
         ).model_dump()
 
     # ──────────────────────────────────────────────────────────────
+    # intent_gap
+    # ──────────────────────────────────────────────────────────────
+
+    async def handle_intent_gap(
+        self,
+        exchange_id: int,
+        question: str,
+        previous_answer: str,
+        last_answer: str,
+        gap_ms: int,
+        response_time_ms: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Handle intent_gap event.
+
+        Runs intent classification and decides the next action.
+        Returns a list of server events to send in order.
+        """
+        from app.config import settings as global_settings
+
+        intent_logger = get_context_logger(
+            connection_id=self._connection_id,
+            submission_id=self._submission_id,
+        )
+
+        threshold_ms = 3000
+        if global_settings is not None:
+            threshold_ms = global_settings.audio.silence_threshold_ms
+
+        intent_logger.info(
+            "Intent gap received",
+            event_type="intent_gap.received",
+            metadata={
+                "exchange_id": exchange_id,
+                "gap_ms": gap_ms,
+                "response_time_ms": response_time_ms,
+                "question_len": len(question),
+                "previous_answer_len": len(previous_answer),
+                "last_answer_len": len(last_answer),
+            },
+        )
+
+        if gap_ms < threshold_ms:
+            intent_logger.info(
+                "Intent gap below threshold",
+                event_type="intent_gap.wait",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "gap_ms": gap_ms,
+                    "threshold_ms": threshold_ms,
+                },
+            )
+            return [
+                IntentDecisionEvent(
+                    exchange_id=exchange_id,
+                    intent="THINKING",
+                    confidence=0.0,
+                    action="wait",
+                    gap_ms=gap_ms,
+                ).model_dump()
+            ]
+
+        # normalized_answer = last_answer.strip().lower()
+        # clarification_phrases = (
+        #     "clarify",
+        #     "clarification",
+        #     "please clarify",
+        #     "can you clarify",
+        #     "need more clarification",
+        #     "more clarification",
+        #     "not clear",
+        #     "unclear",
+        #     "what do you mean",
+        # )
+        # if normalized_answer and any(phrase in normalized_answer for phrase in clarification_phrases):
+        #     intent_logger.info(
+        #         "Clarification phrase override",
+        #         event_type="intent_gap.clarification_override",
+        #         metadata={
+        #             "exchange_id": exchange_id,
+        #             "gap_ms": gap_ms,
+        #         },
+        #     )
+        #     events: List[Dict[str, Any]] = [
+        #         IntentDecisionEvent(
+        #             exchange_id=exchange_id,
+        #             intent="CLARIFICATION",
+        #             confidence=1.0,
+        #             action="clarify",
+        #             gap_ms=gap_ms,
+        #         ).model_dump()
+        #     ]
+        #     clarification = await self._generate_clarification(
+        #         question=question,
+        #         candidate_request=last_answer,
+        #     )
+        #     intent_logger.info(
+        #         "Clarification generated",
+        #         event_type="intent_gap.clarification_generated",
+        #         metadata={
+        #             "exchange_id": exchange_id,
+        #             "clarification_len": len(clarification),
+        #         },
+        #     )
+        #     events.append(
+        #         ClarificationResponseEvent(
+        #             exchange_id=exchange_id,
+        #             clarification_text=clarification,
+        #         ).model_dump()
+        #     )
+        #     return events
+        
+        # Clarification override disabled; rely on model output.
+
+        intent, confidence = await self._classify_intent(
+            question=question,
+            previous_answer=previous_answer,
+            last_answer=last_answer,
+        )
+
+        action = _map_intent_to_action(intent)
+        if action == "clarify" and not previous_answer.strip():
+            confidence = min(1.0, confidence + 0.2)
+        intent_logger.info(
+            "Intent classified",
+            event_type="intent_gap.classified",
+            metadata={
+                "exchange_id": exchange_id,
+                "intent": intent,
+                "confidence": confidence,
+                "action": action,
+                "gap_ms": gap_ms,
+            },
+        )
+        events: List[Dict[str, Any]] = [
+            IntentDecisionEvent(
+                exchange_id=exchange_id,
+                intent=intent,
+                confidence=confidence,
+                action=action,
+                gap_ms=gap_ms,
+            ).model_dump()
+        ]
+
+        if action == "clarify":
+            clarification = await self._generate_clarification(
+                question=question,
+                candidate_request=last_answer,
+            )
+            intent_logger.info(
+                "Clarification generated",
+                event_type="intent_gap.clarification_generated",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "clarification_len": len(clarification),
+                },
+            )
+            events.append(
+                ClarificationResponseEvent(
+                    exchange_id=exchange_id,
+                    clarification_text=clarification,
+                ).model_dump()
+            )
+
+        if action == "advance":
+            response_text = last_answer.strip() or "[NO_ANSWER]"
+            accepted = self.handle_submit_answer(
+                exchange_id=exchange_id,
+                response_text=response_text,
+                response_time_ms=response_time_ms,
+            )
+            intent_logger.info(
+                "Auto-advance triggered",
+                event_type="intent_gap.advance",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "response_len": len(response_text),
+                },
+            )
+            events.append(accepted)
+            events.append(self.handle_request_next_question())
+
+        return events
+
+    # ──────────────────────────────────────────────────────────────
     # heartbeat
     # ──────────────────────────────────────────────────────────────
 
@@ -415,6 +604,130 @@ class RealtimeEventHandler:
             details=details,
             timestamp=_now_iso(),
         ).model_dump()
+
+    async def _classify_intent(
+        self,
+        question: str,
+        previous_answer: str,
+        last_answer: str,
+    ) -> Tuple[str, float]:
+        """Classify intent using the local model (non-blocking)."""
+        text = f"[Q] {question} [A_prev] {previous_answer} [A_last] {last_answer}"
+
+        try:
+            from app.ml.inference import classify_probabilities
+            from app.ml.model import get_intent_model
+
+            model = get_intent_model()
+            probabilities = await asyncio.to_thread(model.predict, text)
+            result = classify_probabilities(probabilities)
+            return result["intent"], float(result["confidence"])
+        except Exception:
+            logger.error("Intent classification failed", exc_info=True)
+            return "THINKING", 0.0
+
+    async def _generate_clarification(
+        self,
+        question: str,
+        candidate_request: str,
+    ) -> str:
+        """Generate a policy-compliant clarification response."""
+        from app.ai.llm import LLMRequest
+        from app.ai.llm.provider_factory import get_default_provider
+        from app.config import settings as global_settings
+        from app.interview.exchanges.clarification_policy import (
+            CLARIFICATION_PROMPT_CONSTRAINTS,
+        )
+
+        if global_settings is None:
+            return _fallback_clarification(question)
+
+        provider = get_default_provider()
+        system_prompt = (
+            "You are an interview assistant. Provide a concise clarification of the "
+            "question without hints, solution steps, or algorithm suggestions. "
+            "Do not include chain-of-thought, reasoning, or tags like <think>. "
+            "Return only the clarification text. Do not start with filler like "
+            "'This question is asking'."
+        )
+        user_prompt_text = (
+            "Question:\n"
+            f"{question}\n\n"
+            "Candidate request:\n"
+            f"{candidate_request}\n\n"
+            "Constraints:\n"
+            "- No hints, solutions, or algorithm suggestions.\n"
+            "- Keep it concise and neutral.\n"
+            "- Max 120 words.\n"
+            "- Return only the clarification text (no labels, no analysis).\n"
+            "- Do not start with phrases like 'This question is asking you to'.\n"
+        )
+
+        try:
+            from app.ai.prompts.repository import SqlPromptTemplateRepository
+            from app.ai.prompts.service import PromptService
+
+            repo = SqlPromptTemplateRepository(self._db)
+            prompt_service = PromptService(repository=repo)
+            rendered = prompt_service.get_rendered_prompt(
+                prompt_type="clarification",
+                variables={
+                    "question": question,
+                    "candidate_request": candidate_request,
+                    "max_words": CLARIFICATION_PROMPT_CONSTRAINTS["MAX_WORDS"],
+                },
+            )
+            system_prompt = rendered.system_prompt or system_prompt
+            user_prompt_text = rendered.text
+        except Exception as e:
+            logger.info(
+                "Clarification prompt template unavailable, using inline prompt",
+                extra={"error": str(e)},
+            )
+
+        system_prompt = (
+            f"{system_prompt}\n"
+            "Do not include chain-of-thought, reasoning, or <think> tags. "
+            "Return only the clarification text."
+        )
+
+        model_name = getattr(
+            global_settings.llm,
+            "llm_model_clarification",
+            global_settings.llm.llm_model_evaluation,
+        )
+
+        request = LLMRequest(
+            prompt=user_prompt_text,
+            model=model_name,
+            system_prompt=system_prompt,
+            temperature=0.0,
+            max_tokens=256,
+            timeout_seconds=global_settings.llm.llm_timeout_seconds,
+            deterministic=True,
+        )
+
+        try:
+            response = await provider.generate_text(request)
+        except Exception as e:
+            logger.warning(
+                "Clarification generation failed",
+                extra={"error": str(e)},
+            )
+            return _fallback_clarification(question)
+
+        if not response.success or not response.text:
+            return _fallback_clarification(question)
+
+        cleaned = _strip_think_tags(response.text.strip())
+        cleaned = _strip_leading_phrase(cleaned)
+        if not cleaned:
+            return _fallback_clarification(question)
+
+        return _trim_words(
+            cleaned,
+            CLARIFICATION_PROMPT_CONSTRAINTS["MAX_WORDS"],
+        )
 
     # ──────────────────────────────────────────────────────────────
     # Internal helpers
@@ -636,3 +949,52 @@ class RealtimeEventHandler:
 def _now_iso() -> str:
     """Return current UTC time as ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _map_intent_to_action(intent: str) -> str:
+    """Map intent label to a realtime action."""
+    if intent == "DONE":
+        return "advance"
+    if intent == "CLARIFICATION":
+        return "clarify"
+    return "wait"
+
+
+def _trim_words(text: str, max_words: int) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+
+
+def _strip_think_tags(text: str) -> str:
+    lowered = text.lower()
+    start = lowered.find("<think>")
+    end = lowered.find("</think>")
+    if start != -1 and end != -1 and end > start:
+        stripped = text[:start] + text[end + len("</think>"):]
+        return stripped.strip()
+    return text
+
+
+def _strip_leading_phrase(text: str) -> str:
+    stripped = text.lstrip()
+    lowered = stripped.lower()
+    prefixes = (
+        "this question is asking",
+        "the question is asking",
+        "this question asks",
+        "the question asks",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            return stripped[len(prefix):].lstrip(" :,-")
+    return text
+    return " ".join(words[:max_words]).strip()
+
+
+def _fallback_clarification(question: str) -> str:
+    return (
+        "To clarify: focus on the main idea of the question and explain your "
+        "reasoning at a high level. Restate any assumptions you are making before "
+        "you continue."
+    )

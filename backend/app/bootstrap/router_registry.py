@@ -206,6 +206,14 @@ def register_routers(app: FastAPI) -> None:
         tags=["Storage"]
     )
     logger.debug("✓ Storage router registered")
+
+    # Intent Classification Module
+    from app.ml.api.routes import router as intent_router
+    app.include_router(
+        intent_router,
+        tags=["Intent"],
+    )
+    logger.debug("✓ Intent router registered")
     
     # ==========================================
     # Health Check Endpoints

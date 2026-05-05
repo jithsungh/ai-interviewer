@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from 're
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Volume2, VolumeX, SkipForward, Pause, Play, Loader2, CheckCircle2, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Pause, Play, Loader2, CheckCircle2, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { InterviewAvatar } from '@/components/interview/InterviewAvatar';
 import { NetworkStatusBadge } from '@/components/interview/NetworkStatusBadge';
 import { useToast } from '@/hooks/use-toast';
 import type { IntegrityLevel } from '@/hooks/useProctoringMonitor';
 import type { InterviewVoiceType } from '@/types/interviewCustomization';
+import type { ClarificationResponse, IntentDecision } from '@/types/websocketEvents';
 
 interface SpeakingQuestionProps {
   submissionId?: number | null;
@@ -22,10 +23,11 @@ interface SpeakingQuestionProps {
   speechRate?: number;
   difficulty?: 'easy' | 'medium' | 'hard';
   topic?: string;
-  onComplete: () => void;
-  onAnswer?: (answer: string) => void;
+  onIntentGap?: (lastAnswer: string, gapMs: number) => void;
   initialAnswer?: string;
   onAnswerDraftChange?: (answer: string) => void;
+  clarificationResponse?: ClarificationResponse | null;
+  intentDecision?: IntentDecision | null;
   phase: string;
   integrityLevel?: IntegrityLevel;
   tabSwitchCount?: number;
@@ -50,10 +52,11 @@ export const SpeakingQuestion = ({
   speechRate = 0.95,
   difficulty,
   topic,
-  onComplete,
-  onAnswer,
+  onIntentGap,
   initialAnswer = '',
   onAnswerDraftChange,
+  clarificationResponse = null,
+  intentDecision = null,
   phase,
   integrityLevel = 'good',
   tabSwitchCount = 0,
@@ -61,6 +64,13 @@ export const SpeakingQuestion = ({
   onProctoringEvent,
 }: SpeakingQuestionProps) => {
   const isDev = import.meta.env.DEV;
+  const intentGapMs = (() => {
+    const raw = Number(import.meta.env.VITE_SILENCE_THRESHOLD_MS);
+    if (Number.isFinite(raw) && raw > 0) {
+      return raw;
+    }
+    return 4000;
+  })();
   const { toast } = useToast();
   const interviewThemeVars: CSSProperties = {
     ['--primary' as any]: '#001938',
@@ -91,7 +101,6 @@ export const SpeakingQuestion = ({
   const [interimText, setInterimText] = useState('');
   const [hasFinishedReading, setHasFinishedReading] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [clarificationInput, setClarificationInput] = useState('');
   const [clarificationLog, setClarificationLog] = useState<Array<{ from: 'candidate' | 'ai'; text: string }>>([]);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState('');
@@ -109,6 +118,13 @@ export const SpeakingQuestion = ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingGapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastGapSentAtRef = useRef<number | null>(null);
+  const lastGapAnswerRef = useRef<string>('');
+  const pendingClarificationRef = useRef<string | null>(null);
+  const lastInputSourceRef = useRef<'speech' | 'typing' | null>(null);
+  const userResponseRef = useRef('');
+  const interimTextRef = useRef('');
   const isPausedRef = useRef(false);
   const candidateVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -159,18 +175,104 @@ export const SpeakingQuestion = ({
     setUserResponse('');
     setInterimText('');
     setElapsedSeconds(0);
-    setClarificationInput('');
     setClarificationLog([]);
     setIsPaused(false);
     setIsSubmittingAnswer(false);
     setMicrophoneReady(true);
     setMicrophoneError('');
     readStartLockRef.current = false;
+    lastInputSourceRef.current = null;
+    lastGapSentAtRef.current = null;
+    lastGapAnswerRef.current = '';
+    pendingClarificationRef.current = null;
+    if (typingGapTimeoutRef.current) {
+      clearTimeout(typingGapTimeoutRef.current);
+      typingGapTimeoutRef.current = null;
+    }
   }, [question]);
 
   useEffect(() => {
     setUserResponse(initialAnswer);
   }, [initialAnswer, question]);
+
+  useEffect(() => {
+    userResponseRef.current = userResponse;
+  }, [userResponse]);
+
+  useEffect(() => {
+    interimTextRef.current = interimText;
+  }, [interimText]);
+
+  const selectVoice = useCallback(() => {
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+
+    const premiumEnglishVoice = englishVoices.find(v =>
+      v.name.includes('Premium') ||
+      v.name.includes('Natural') ||
+      v.name.includes('Google') ||
+      v.name.includes('Neural')
+    );
+    const maleHint = /(male|david|alex|daniel|james|mark|tom|guy|man)/i;
+    const femaleHint = /(female|zira|susan|samantha|victoria|karen|hazel|aria|jenny|woman|girl)/i;
+    const exactPreferredVoice = preferredVoiceName
+      ? englishVoices.find((voice) => voice.name === preferredVoiceName)
+      : undefined;
+    const preferredVoice = preferredVoiceType === 'male'
+      ? englishVoices.find((voice) => maleHint.test(voice.name))
+      : preferredVoiceType === 'female'
+        ? englishVoices.find((voice) => femaleHint.test(voice.name))
+        : undefined;
+    const usEnglishVoice = englishVoices.find(v => v.lang.toLowerCase().startsWith('en-us'));
+    const gbEnglishVoice = englishVoices.find(v => v.lang.toLowerCase().startsWith('en-gb'));
+    const fallbackEnglishVoice = englishVoices[0];
+
+    return exactPreferredVoice || preferredVoice || premiumEnglishVoice || usEnglishVoice || gbEnglishVoice || fallbackEnglishVoice || null;
+  }, [preferredVoiceName, preferredVoiceType]);
+
+  const speakClarification = useCallback((text: string) => {
+    if (!text.trim()) return;
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = Math.max(0.7, Math.min(1.1, speechRate));
+    utterance.pitch = 1.0;
+    utterance.voice = selectVoice();
+    speechSynthRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }, [selectVoice, speechRate]);
+
+  useEffect(() => {
+    if (!clarificationResponse) return;
+    setClarificationLog((prev) => {
+      const next = [...prev];
+      if (pendingClarificationRef.current) {
+        next.push({ from: 'candidate', text: pendingClarificationRef.current });
+        pendingClarificationRef.current = null;
+      }
+      next.push({ from: 'ai', text: clarificationResponse.clarification_text });
+      return next;
+    });
+    setUserResponse('');
+    setInterimText('');
+    onAnswerDraftChange?.('');
+    if (!isMuted && !isPaused) {
+      speakClarification(clarificationResponse.clarification_text);
+    }
+  }, [clarificationResponse, isMuted, isPaused, onAnswerDraftChange, speakClarification]);
+
+  useEffect(() => {
+    if (!intentDecision) return;
+    if (intentDecision.action === 'advance') {
+      setIsSubmittingAnswer(true);
+      return;
+    }
+    if (intentDecision.action === 'wait' || intentDecision.action === 'clarify') {
+      setIsSubmittingAnswer(false);
+    }
+  }, [intentDecision]);
 
   useEffect(() => {
     if (isPaused) return;
@@ -447,6 +549,23 @@ export const SpeakingQuestion = ({
       }
     }, [onProctoringEvent]);
 
+  const emitIntentGap = useCallback((lastAnswer: string) => {
+    if (!onIntentGap) return;
+    const normalized = lastAnswer.trim();
+    if (!normalized) return;
+
+    const now = Date.now();
+    const lastSentAt = lastGapSentAtRef.current ?? 0;
+    if (now - lastSentAt < intentGapMs / 2 && lastGapAnswerRef.current === normalized) {
+      return;
+    }
+
+    lastGapSentAtRef.current = now;
+    lastGapAnswerRef.current = normalized;
+    pendingClarificationRef.current = normalized;
+    onIntentGap(normalized, intentGapMs);
+  }, [intentGapMs, onIntentGap]);
+
   const startListening = useCallback(() => {
     if (isPausedRef.current) return;
 
@@ -482,7 +601,7 @@ export const SpeakingQuestion = ({
           if (recognitionRef.current) {
             recognitionRef.current.stop();
           }
-        }, 4000);
+        }, intentGapMs);
       };
 
       recognition.onstart = () => {
@@ -506,6 +625,7 @@ export const SpeakingQuestion = ({
 
         if (finalTranscript.trim() || interim.trim()) {
           heardSpeechThisTurn = true;
+          lastInputSourceRef.current = 'speech';
         }
 
         setUserResponse(finalTranscript);
@@ -542,10 +662,8 @@ export const SpeakingQuestion = ({
           return;
         }
 
-        setTimeout(() => {
-          const nextBtn = document.getElementById('auto-advance-btn');
-          if (nextBtn) nextBtn.click();
-        }, 100);
+        const lastAnswer = `${userResponseRef.current} ${interimTextRef.current}`.trim();
+        emitIntentGap(lastAnswer);
       };
 
       recognitionRef.current = recognition;
@@ -553,7 +671,36 @@ export const SpeakingQuestion = ({
     };
 
     void beginListening();
-  }, [onProctoringEvent, verifyMicrophoneAccess]);
+  }, [emitIntentGap, intentGapMs, onProctoringEvent, verifyMicrophoneAccess]);
+
+  useEffect(() => {
+    if (!onIntentGap || isPaused || isListening) {
+      return;
+    }
+
+    if (lastInputSourceRef.current !== 'typing') {
+      return;
+    }
+
+    if (!userResponse.trim()) {
+      return;
+    }
+
+    if (typingGapTimeoutRef.current) {
+      clearTimeout(typingGapTimeoutRef.current);
+    }
+
+    typingGapTimeoutRef.current = setTimeout(() => {
+      emitIntentGap(userResponse);
+    }, intentGapMs);
+
+    return () => {
+      if (typingGapTimeoutRef.current) {
+        clearTimeout(typingGapTimeoutRef.current);
+        typingGapTimeoutRef.current = null;
+      }
+    };
+  }, [emitIntentGap, intentGapMs, isListening, isPaused, onIntentGap, userResponse]);
 
   const startReading = useCallback(() => {
     if (isMuted || words.length === 0 || isPausedRef.current || readStartLockRef.current) return;
@@ -569,31 +716,7 @@ export const SpeakingQuestion = ({
     utterance.rate = speechRate;
     utterance.pitch = 1.0;
     
-    // Select a natural English voice (avoid locale mismatch mispronunciations)
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
-
-    const premiumEnglishVoice = englishVoices.find(v => 
-      v.name.includes('Premium') ||
-      v.name.includes('Natural') ||
-      v.name.includes('Google') ||
-      v.name.includes('Neural')
-    );
-    const maleHint = /(male|david|alex|daniel|james|mark|tom|guy|man)/i;
-    const femaleHint = /(female|zira|susan|samantha|victoria|karen|hazel|aria|jenny|woman|girl)/i;
-    const exactPreferredVoice = preferredVoiceName
-      ? englishVoices.find((voice) => voice.name === preferredVoiceName)
-      : undefined;
-    const preferredVoice = preferredVoiceType === 'male'
-      ? englishVoices.find((voice) => maleHint.test(voice.name))
-      : preferredVoiceType === 'female'
-        ? englishVoices.find((voice) => femaleHint.test(voice.name))
-        : undefined;
-    const usEnglishVoice = englishVoices.find(v => v.lang.toLowerCase().startsWith('en-us'));
-    const gbEnglishVoice = englishVoices.find(v => v.lang.toLowerCase().startsWith('en-gb'));
-    const fallbackEnglishVoice = englishVoices[0];
-    
-    utterance.voice = exactPreferredVoice || preferredVoice || premiumEnglishVoice || usEnglishVoice || gbEnglishVoice || fallbackEnglishVoice || null;
+    utterance.voice = selectVoice();
 
     // Fallback timer in case the speech synthesis engine doesn't fire `onboundary`
     let fallbackTimer: NodeJS.Timeout | null = null;
@@ -698,7 +821,7 @@ export const SpeakingQuestion = ({
 
     speechSynthRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-  }, [question, words, isMuted, startListening, preferredVoiceType, preferredVoiceName, speechRate]);
+  }, [question, words, isMuted, startListening, selectVoice, speechRate]);
 
   // Start reading when words are ready
   useEffect(() => {
@@ -757,24 +880,6 @@ export const SpeakingQuestion = ({
     setIsMuted(!isMuted);
   };
 
-  const handleNext = useCallback(() => {
-    if (isPaused || isSubmittingAnswer) return;
-
-    setIsSubmittingAnswer(true);
-
-    window.speechSynthesis.cancel();
-    stopListening();
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
-    }
-    
-    const finalAnswer = userResponse.trim() ? userResponse : "No response provided.";
-    if (onAnswer) {
-      onAnswer(finalAnswer);
-    }
-    onComplete();
-  }, [isPaused, isSubmittingAnswer, userResponse, onAnswer, onComplete, stopListening]);
-
   const togglePauseInterview = useCallback(() => {
     setIsPaused((prev) => {
       const nextPaused = !prev;
@@ -798,15 +903,6 @@ export const SpeakingQuestion = ({
       return nextPaused;
     });
   }, []);
-
-  const handleClarificationSend = useCallback(() => {
-    const text = clarificationInput.trim();
-    if (!text) return;
-
-    const aiReply = `Clarification: focus on a short STAR structure (Situation, Task, Action, Result), and answer this question with one specific real example.`;
-    setClarificationLog((prev) => [...prev, { from: 'candidate', text }, { from: 'ai', text: aiReply }]);
-    setClarificationInput('');
-  }, [clarificationInput]);
 
   const formatTimer = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -1066,17 +1162,8 @@ export const SpeakingQuestion = ({
                     </div>
                   )}
 
-                  <div className="mb-2 flex gap-2">
-                    <input
-                      value={clarificationInput}
-                      onChange={(e) => setClarificationInput(e.target.value)}
-                      placeholder="Ask clarification for this same question..."
-                      disabled={isSubmittingAnswer}
-                      className="h-10 flex-1 rounded-xl border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.06)] px-3 text-sm text-white placeholder:text-white/50 outline-none"
-                    />
-                    <Button onClick={handleClarificationSend} disabled={!clarificationInput.trim() || isSubmittingAnswer} className="h-10 bg-[rgba(118,151,204,0.9)] text-white hover:bg-[rgba(118,151,204,1)]">
-                      Send
-                    </Button>
+                  <div className="mb-2 rounded-xl border border-[rgba(255,255,255,0.18)] bg-[rgba(118,151,204,0.12)] px-3 py-2 text-xs text-blue-100">
+                    Clarifications and next steps are handled automatically after a short response gap.
                   </div>
 
                   <textarea
@@ -1084,6 +1171,7 @@ export const SpeakingQuestion = ({
                     value={userResponse}
                     onChange={(e) => {
                       const nextValue = e.target.value;
+                      lastInputSourceRef.current = 'typing';
                       setUserResponse(nextValue);
                       onAnswerDraftChange?.(nextValue);
                     }}
@@ -1121,15 +1209,6 @@ export const SpeakingQuestion = ({
                           Start Speaking
                         </>
                       )}
-                    </Button>
-
-                    <Button id="auto-advance-btn" size="lg" onClick={handleNext} disabled={isPaused || isSubmittingAnswer} className="gap-2 gradient-primary text-primary-foreground shadow-glow">
-                      <SkipForward className="h-5 w-5" />
-                      {isSubmittingAnswer
-                        ? 'Submitting...'
-                        : phase === 'complexity'
-                          ? 'Finish Interview'
-                          : 'Next Question'}
                     </Button>
 
                     {isReading && (

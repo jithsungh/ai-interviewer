@@ -14,6 +14,8 @@ import type {
   CodeExecutionCompleted,
   TimerUpdate,
   ProgressUpdate,
+  IntentDecision,
+  ClarificationResponse,
   InterviewCompleted,
   InterviewExpired,
   ConnectionReplaced,
@@ -31,6 +33,8 @@ export type ServerEventHandler = {
   onCodeExecutionCompleted?: (event: CodeExecutionCompleted) => void;
   onTimerUpdate?: (event: TimerUpdate) => void;
   onProgressUpdate?: (event: ProgressUpdate) => void;
+  onIntentDecision?: (event: IntentDecision) => void;
+  onClarificationResponse?: (event: ClarificationResponse) => void;
   onInterviewCompleted?: (event: InterviewCompleted) => void;
   onInterviewExpired?: (event: InterviewExpired) => void;
   onConnectionReplaced?: (event: ConnectionReplaced) => void;
@@ -44,6 +48,8 @@ export type ServerEventHandler = {
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8000';
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const SHOULD_LOG_EVENTS =
+  import.meta.env.DEV || String(import.meta.env.VITE_WS_EVENT_LOGS).toLowerCase() === 'true';
 
 export class InterviewSocket {
   private ws: WebSocket | null = null;
@@ -62,6 +68,15 @@ export class InterviewSocket {
     this.submissionId = submissionId;
     this.getToken = getToken;
     this.handlers = handlers;
+  }
+
+  private logEvent(message: string, payload?: unknown): void {
+    if (!SHOULD_LOG_EVENTS) return;
+    if (payload !== undefined) {
+      console.info(`[InterviewSocket] ${message}`, payload);
+      return;
+    }
+    console.info(`[InterviewSocket] ${message}`);
   }
 
   // ---- Connection ----
@@ -122,6 +137,9 @@ export class InterviewSocket {
 
   send(event: ClientEvent): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      if (event.event_type === 'intent_gap') {
+        this.logEvent('send.intent_gap', event);
+      }
       this.ws.send(JSON.stringify(event));
     }
   }
@@ -160,6 +178,25 @@ export class InterviewSocket {
       exchange_id: exchangeId,
       response_code: responseCode,
       response_language: responseLanguage,
+      response_time_ms: responseTimeMs,
+    });
+  }
+
+  sendIntentGap(
+    exchangeId: number,
+    question: string,
+    previousAnswer: string,
+    lastAnswer: string,
+    gapMs: number,
+    responseTimeMs: number,
+  ): void {
+    this.send({
+      event_type: 'intent_gap',
+      exchange_id: exchangeId,
+      question,
+      previous_answer: previousAnswer,
+      last_answer: lastAnswer,
+      gap_ms: gapMs,
       response_time_ms: responseTimeMs,
     });
   }
@@ -223,6 +260,14 @@ export class InterviewSocket {
         break;
       case 'progress_update':
         this.handlers.onProgressUpdate?.(data as ProgressUpdate);
+        break;
+      case 'intent_decision':
+        this.logEvent('recv.intent_decision', data);
+        this.handlers.onIntentDecision?.(data as IntentDecision);
+        break;
+      case 'clarification_response':
+        this.logEvent('recv.clarification_response', data);
+        this.handlers.onClarificationResponse?.(data as ClarificationResponse);
         break;
       case 'interview_completed':
         this.handlers.onInterviewCompleted?.(data as InterviewCompleted);

@@ -30,6 +30,16 @@ export interface SubmitCodeEvent {
   response_time_ms: number;
 }
 
+export interface IntentGapEvent {
+  event_type: 'intent_gap';
+  exchange_id: number;
+  question: string;
+  previous_answer: string;
+  last_answer: string;
+  gap_ms: number;
+  response_time_ms: number;
+}
+
 export interface HeartbeatEvent {
   event_type: 'heartbeat';
   timestamp: string;
@@ -40,6 +50,7 @@ export type ClientEvent =
   | RequestNextQuestionEvent
   | SubmitAnswerEvent
   | SubmitCodeEvent
+  | IntentGapEvent
   | HeartbeatEvent;
 
 // ---- Server → Client Events ----
@@ -123,6 +134,21 @@ export interface ProgressUpdate {
   section_progress?: Record<string, { completed: number; total: number }>;
 }
 
+export interface IntentDecision {
+  event_type: 'intent_decision';
+  exchange_id: number;
+  intent: string;
+  confidence: number;
+  action: 'wait' | 'clarify' | 'advance';
+  gap_ms?: number | null;
+}
+
+export interface ClarificationResponse {
+  event_type: 'clarification_response';
+  exchange_id: number;
+  clarification_text: string;
+}
+
 export interface InterviewCompleted {
   event_type: 'interview_completed';
   submission_id: number;
@@ -181,6 +207,8 @@ export type ServerEvent =
   | CodeExecutionCompleted
   | TimerUpdate
   | ProgressUpdate
+  | IntentDecision
+  | ClarificationResponse
   | InterviewCompleted
   | InterviewExpired
   | ConnectionReplaced
