@@ -413,6 +413,35 @@ class RealtimeEventHandler:
             },
         )
 
+        max_gap_ms = 15000
+        if gap_ms >= max_gap_ms:
+            intent_logger.info(
+                "Intent gap exceeded max threshold",
+                event_type="intent_gap.force_advance",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "gap_ms": gap_ms,
+                    "max_gap_ms": max_gap_ms,
+                },
+            )
+            response_text = last_answer.strip() or "[NO_ANSWER]"
+            accepted = self.handle_submit_answer(
+                exchange_id=exchange_id,
+                response_text=response_text,
+                response_time_ms=response_time_ms,
+            )
+            return [
+                IntentDecisionEvent(
+                    exchange_id=exchange_id,
+                    intent="THINKING",
+                    confidence=0.0,
+                    action="advance",
+                    gap_ms=gap_ms,
+                ).model_dump(),
+                accepted,
+                self.handle_request_next_question(),
+            ]
+
         if gap_ms < threshold_ms:
             intent_logger.info(
                 "Intent gap below threshold",
