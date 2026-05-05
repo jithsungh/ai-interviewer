@@ -96,6 +96,7 @@ export function useInterview(submissionId: number | null) {
   const questionLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNextQuestionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const awaitingNextQuestionRef = useRef(false);
+  const manualNextRequestedRef = useRef(false);
   const lastFinalAnswerRef = useRef<string>('');
   const lastGapPayloadRef = useRef<{ exchangeId: number; lastAnswer: string } | null>(null);
   const restoreAttemptedRef = useRef(false);
@@ -203,6 +204,12 @@ export function useInterview(submissionId: number | null) {
             phase: 'question_loading',
           }));
           setQuestionLoadTimeout();
+          if (manualNextRequestedRef.current) {
+            manualNextRequestedRef.current = false;
+            awaitingNextQuestionRef.current = false;
+            clearPendingNextQuestion();
+            return;
+          }
           awaitingNextQuestionRef.current = true;
           clearPendingNextQuestion();
           pendingNextQuestionRef.current = setTimeout(() => {
@@ -504,6 +511,23 @@ export function useInterview(submissionId: number | null) {
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
   }, [state.currentQuestion]);
 
+  const forceNextQuestion = useCallback((responseText: string) => {
+    const socket = socketRef.current;
+    const question = state.currentQuestion;
+    if (!socket || !question) return;
+
+    lastFinalAnswerRef.current = responseText;
+    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    setState(prev => ({ ...prev, phase: 'submitting' }));
+    socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
+    setTransitionLoading('Loading next question...');
+    manualNextRequestedRef.current = true;
+    clearPendingNextQuestion();
+    pendingNextQuestionRef.current = setTimeout(() => {
+      socket.requestNextQuestion();
+    }, 200);
+  }, [clearPendingNextQuestion, setTransitionLoading, state.currentQuestion]);
+
   const sendIntentGap = useCallback((
     lastAnswer: string,
     gapMs: number,
@@ -593,6 +617,7 @@ export function useInterview(submissionId: number | null) {
     submitCode,
     sendIntentGap,
     requestNextAfterCodeResult,
+    forceNextQuestion,
     endInterviewEarly,
     saveDraftAnswer,
     loadDraft: (exchangeId: number) =>

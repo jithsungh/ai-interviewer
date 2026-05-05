@@ -70,6 +70,7 @@ const InterviewSession = () => {
     submitCode,
     sendIntentGap,
     requestNextAfterCodeResult,
+    forceNextQuestion,
     endInterviewEarly,
     saveDraftAnswer,
     loadDraft,
@@ -833,6 +834,7 @@ const InterviewSession = () => {
         initialAnswer={currentDraft ?? ''}
         onAnswerDraftChange={saveDraftAnswer}
         onIntentGap={sendIntentGap}
+        onForceNext={forceNextQuestion}
         clarificationResponse={state.lastClarification}
         intentDecision={state.lastIntentDecision}
         phase={currentQuestion.question_type}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from 're
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Volume2, VolumeX, Pause, Play, Loader2, CheckCircle2, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Pause, Play, Loader2, CheckCircle2, ShieldCheck, ShieldAlert, AlertTriangle, SkipForward } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { InterviewAvatar } from '@/components/interview/InterviewAvatar';
 import { NetworkStatusBadge } from '@/components/interview/NetworkStatusBadge';
@@ -24,6 +24,7 @@ interface SpeakingQuestionProps {
   difficulty?: 'easy' | 'medium' | 'hard';
   topic?: string;
   onIntentGap?: (lastAnswer: string, gapMs: number) => void;
+  onForceNext?: (answer: string) => void;
   initialAnswer?: string;
   onAnswerDraftChange?: (answer: string) => void;
   clarificationResponse?: ClarificationResponse | null;
@@ -53,6 +54,7 @@ export const SpeakingQuestion = ({
   difficulty,
   topic,
   onIntentGap,
+  onForceNext,
   initialAnswer = '',
   onAnswerDraftChange,
   clarificationResponse = null,
@@ -243,6 +245,7 @@ export const SpeakingQuestion = ({
     speechSynthRef.current = utterance;
     window.speechSynthesis.speak(utterance);
   }, [selectVoice, speechRate]);
+
 
   useEffect(() => {
     if (!clarificationResponse) return;
@@ -871,6 +874,19 @@ export const SpeakingQuestion = ({
     }
   }, []);
 
+  const handleForceNext = useCallback(() => {
+    if (isPaused || isSubmittingAnswer) return;
+    setIsSubmittingAnswer(true);
+    window.speechSynthesis.cancel();
+    stopListening();
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+
+    const finalAnswer = userResponse.trim() || 'No response provided.';
+    onForceNext?.(finalAnswer);
+  }, [isPaused, isSubmittingAnswer, onForceNext, stopListening, userResponse]);
+
   const toggleMute = () => {
     if (!isMuted) {
       window.speechSynthesis.cancel();
@@ -937,7 +953,7 @@ export const SpeakingQuestion = ({
 
             <div className="flex items-center gap-2">
               <Badge className="border-0 bg-[rgba(34,197,94,0.2)] text-emerald-900">Voice {isMuted ? 'Off' : 'On'}</Badge>
-              <Badge className="border-0 bg-[rgba(59,130,246,0.2)] text-blue-900">Timer {formatTimer(elapsedSeconds)}</Badge>
+              {/* <Badge className="border-0 bg-[rgba(59,130,246,0.2)] text-blue-900">Timer {formatTimer(elapsedSeconds)}</Badge> */}
               <Badge className={cn('border-0', postureMetrics.eyeContact >= 70 ? 'bg-emerald-500/20 text-emerald-900' : 'bg-amber-500/20 text-amber-900')}>
                 Eye Contact {cameraReady ? `${postureMetrics.eyeContact}%` : 'N/A'}
               </Badge>
@@ -1166,19 +1182,53 @@ export const SpeakingQuestion = ({
                     Clarifications and next steps are handled automatically after a short response gap.
                   </div>
 
-                  <textarea
-                    id="candidate-answer-input"
-                    value={userResponse}
-                    onChange={(e) => {
-                      const nextValue = e.target.value;
-                      lastInputSourceRef.current = 'typing';
-                      setUserResponse(nextValue);
-                      onAnswerDraftChange?.(nextValue);
-                    }}
-                    placeholder="Speak or type your answer here..."
-                    disabled={isSubmittingAnswer}
-                    className="min-h-[98px] w-full rounded-xl border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.06)] p-3 text-sm leading-7 text-white placeholder:text-white/50 outline-none"
-                  />
+                  <div className="flex flex-wrap items-start gap-3">
+                    <textarea
+                      id="candidate-answer-input"
+                      value={userResponse}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        lastInputSourceRef.current = 'typing';
+                        setUserResponse(nextValue);
+                        onAnswerDraftChange?.(nextValue);
+                      }}
+                      placeholder="Speak or type your answer here..."
+                      disabled={isSubmittingAnswer}
+                      className="min-h-[98px] flex-1 rounded-xl border border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.06)] p-3 text-sm leading-7 text-white placeholder:text-white/50 outline-none"
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        onClick={isListening ? stopListening : startListening}
+                        disabled={isPaused || isSubmittingAnswer || (!microphoneReady && !isListening)}
+                        className={cn(
+                          'h-14 w-14 rounded-full border border-[rgba(255,255,255,0.25)] text-white shadow-[0_0_16px_rgba(233,195,73,0.25)] transition',
+                          isListening
+                            ? 'bg-rose-500/80 hover:bg-rose-500 text-white'
+                            : 'bg-[rgba(233,195,73,0.25)] hover:bg-[rgba(233,195,73,0.4)]',
+                        )}
+                        aria-label={isListening ? 'Stop speaking' : 'Start speaking'}
+                      >
+                        {isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+                      </Button>
+                      <Button
+                        id="auto-advance-btn"
+                        size="sm"
+                        onClick={handleForceNext}
+                        disabled={!onForceNext || isSubmittingAnswer || isPaused}
+                        className="h-9 gap-2 gradient-primary text-primary-foreground shadow-glow"
+                      >
+                        <SkipForward className="h-4 w-4" />
+                        {isSubmittingAnswer ? 'Submitting...' : 'Next Question'}
+                      </Button>
+                      {isReading && (
+                        <div className="flex items-center gap-2 text-[11px] text-blue-100">
+                          <span className="h-2 w-2 rounded-full bg-[var(--secondary)]" />
+                          AI reading
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   {isSubmittingAnswer && (
                     <div className="mt-3 rounded-xl border border-emerald-300/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
@@ -1190,34 +1240,6 @@ export const SpeakingQuestion = ({
                     </div>
                   )}
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Button
-                      variant={isListening ? 'destructive' : 'default'}
-                      size="lg"
-                      onClick={isListening ? stopListening : startListening}
-                      disabled={isPaused || isSubmittingAnswer || (!microphoneReady && !isListening)}
-                      className="gap-2"
-                    >
-                      {isListening ? (
-                        <>
-                          <MicOff className="h-5 w-5" />
-                          Stop Speaking
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="h-5 w-5" />
-                          Start Speaking
-                        </>
-                      )}
-                    </Button>
-
-                    {isReading && (
-                      <div className="ml-auto flex items-center gap-2 text-xs text-blue-100">
-                        <span className="h-2 w-2 rounded-full bg-[var(--secondary)]" />
-                        AI reading in progress
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </section>
