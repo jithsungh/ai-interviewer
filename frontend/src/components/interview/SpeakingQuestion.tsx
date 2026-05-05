@@ -575,7 +575,7 @@ export const SpeakingQuestion = ({
     onIntentGap(normalized, intentGapMs);
   }, [intentGapMs, onIntentGap]);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback((startReason: 'auto' | 'manual' = 'manual') => {
     if (isPausedRef.current) return;
 
     const beginListening = async () => {
@@ -650,8 +650,13 @@ export const SpeakingQuestion = ({
 
         const criticalMicError = ['not-allowed', 'service-not-allowed', 'audio-capture'].includes(event.error);
         if (criticalMicError) {
-          setMicrophoneReady(false);
-          setMicrophoneError('Microphone access was lost or blocked. Retry microphone and continue.');
+          if (startReason === 'auto') {
+            setMicrophoneReady(true);
+            setMicrophoneError('Browser blocked auto-start. Tap the mic button to begin speaking.');
+          } else {
+            setMicrophoneReady(false);
+            setMicrophoneError('Microphone access was lost or blocked. Retry microphone and continue.');
+          }
         }
 
         onProctoringEvent?.('microphone_error', 'medium', `Microphone recognition error: ${event.error || 'unknown'}`);
@@ -817,7 +822,7 @@ export const SpeakingQuestion = ({
       if (isPausedRef.current) return;
       // Auto-start listening after reading
       setTimeout(() => {
-        startListening();
+        startListening('auto');
       }, 500);
     };
 
@@ -1217,7 +1222,7 @@ export const SpeakingQuestion = ({
                     <div className="flex flex-col items-center gap-2">
                       <Button
                         variant="ghost"
-                        onClick={isListening ? stopListening : startListening}
+                        onClick={isListening ? stopListening : () => startListening('manual')}
                         disabled={isPaused || isSubmittingAnswer || (!microphoneReady && !isListening)}
                         className={cn(
                           'h-14 w-14 rounded-full border border-[rgba(255,255,255,0.25)] text-white shadow-[0_0_16px_rgba(233,195,73,0.25)] transition',
