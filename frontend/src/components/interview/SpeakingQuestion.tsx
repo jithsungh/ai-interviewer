@@ -906,7 +906,7 @@ export const SpeakingQuestion = ({
   }, [isPaused, isSubmittingAnswer, onAnswer, onForceNext, stopListening, userResponse]);
 
   useEffect(() => {
-    if (isPaused || isSubmittingAnswer || (!onAnswer && !onForceNext)) {
+    if (isPaused || isSubmittingAnswer || isListening || (!onAnswer && !onForceNext)) {
       if (maxGapTimeoutRef.current) {
         clearTimeout(maxGapTimeoutRef.current);
         maxGapTimeoutRef.current = null;
@@ -931,7 +931,7 @@ export const SpeakingQuestion = ({
         maxGapTimeoutRef.current = null;
       }
     };
-  }, [handleForceNext, isPaused, isSubmittingAnswer, onAnswer, onForceNext, userResponse, interimText]);
+  }, [handleForceNext, isPaused, isSubmittingAnswer, isListening, onAnswer, onForceNext, userResponse, interimText]);
 
   const toggleMute = () => {
     if (!isMuted) {
