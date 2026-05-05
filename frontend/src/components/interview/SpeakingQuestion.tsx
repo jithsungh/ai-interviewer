@@ -879,7 +879,14 @@ export const SpeakingQuestion = ({
 
   const handleForceNext = useCallback(() => {
     if (isPaused || isSubmittingAnswer) return;
-    if (!onAnswer && !onForceNext) return;
+    if (!onAnswer && !onForceNext) {
+      toast({
+        title: 'Unable to submit',
+        description: 'Answer submission is unavailable. Please refresh and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsSubmittingAnswer(true);
     window.speechSynthesis.cancel();
     stopListening();
@@ -888,8 +895,11 @@ export const SpeakingQuestion = ({
     }
 
     const finalAnswer = userResponse.trim() || 'No response provided.';
-    onAnswer?.(finalAnswer);
-    onForceNext?.(finalAnswer);
+    if (onForceNext) {
+      onForceNext(finalAnswer);
+    } else {
+      onAnswer?.(finalAnswer);
+    }
   }, [isPaused, isSubmittingAnswer, onAnswer, onForceNext, stopListening, userResponse]);
 
   const toggleMute = () => {
@@ -1220,7 +1230,7 @@ export const SpeakingQuestion = ({
                         id="auto-advance-btn"
                         size="sm"
                         onClick={handleForceNext}
-                        disabled={(!onAnswer && !onForceNext) || isSubmittingAnswer || isPaused}
+                        disabled={isSubmittingAnswer || isPaused}
                         className="h-9 gap-2 gradient-primary text-primary-foreground shadow-glow"
                       >
                         <SkipForward className="h-4 w-4" />

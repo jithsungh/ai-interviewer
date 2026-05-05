@@ -68,7 +68,9 @@ const InterviewSession = () => {
     startSession,
     submitAnswer,
     submitCode,
+    sendIntentGap,
     requestNextAfterCodeResult,
+    forceNextQuestion,
     endInterviewEarly,
     saveDraftAnswer,
     loadDraft,
@@ -472,11 +474,22 @@ const InterviewSession = () => {
               return;
             }
             if (pc.signalingState !== 'stable') {
-              console.debug('[InterviewSession Publisher] Signaling not stable, skipping offer', {
-                reason,
-                signalingState: pc.signalingState,
-              });
-              return;
+              if (pc.signalingState === 'have-local-offer') {
+                try {
+                  console.debug('[InterviewSession Publisher] Rolling back stale offer', { reason });
+                  await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
+                } catch (err) {
+                  console.warn('[InterviewSession Publisher] Rollback failed, reconnecting publisher', err);
+                  schedulePublisherReconnect('rollback_failed');
+                  return;
+                }
+              } else {
+                console.debug('[InterviewSession Publisher] Signaling not stable, skipping offer', {
+                  reason,
+                  signalingState: pc.signalingState,
+                });
+                return;
+              }
             }
             if (ws.readyState !== WebSocket.OPEN) {
               console.debug('[InterviewSession Publisher] WS not open, skipping offer', {
@@ -839,8 +852,12 @@ const InterviewSession = () => {
         topic={currentQuestion.section_name}
         onComplete={handleSpeakingComplete}
         onAnswer={handleSpeakingAnswer}
+        onForceNext={forceNextQuestion}
         initialAnswer={currentDraft ?? ''}
         onAnswerDraftChange={saveDraftAnswer}
+        onIntentGap={sendIntentGap}
+        clarificationResponse={state.lastClarification}
+        intentDecision={state.lastIntentDecision}
         phase={currentQuestion.question_type}
         integrityLevel={integrityLevel}
         tabSwitchCount={tabSwitchCount}

@@ -506,7 +506,7 @@ export function useInterview(submissionId: number | null) {
     if (!socket || !question) return;
 
     lastFinalAnswerRef.current = responseText;
-    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
   }, [state.currentQuestion]);
@@ -517,7 +517,7 @@ export function useInterview(submissionId: number | null) {
     if (!socket || !question) return;
 
     lastFinalAnswerRef.current = responseText;
-    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
     setTransitionLoading('Loading next question...');
@@ -536,7 +536,7 @@ export function useInterview(submissionId: number | null) {
     const question = state.currentQuestion;
     if (!socket || !question) return;
 
-    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     const sentences = lastAnswer
       .split('.')
       .map((sentence) => sentence.trim())
@@ -567,7 +567,7 @@ export function useInterview(submissionId: number | null) {
     const question = state.currentQuestion;
     if (!socket || !question) return;
 
-    const responseTimeMs = Date.now() - questionStartTimeRef.current;
+    const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitCode(question.exchange_id, responseCode, responseLanguage, responseTimeMs);
   }, [state.currentQuestion]);
