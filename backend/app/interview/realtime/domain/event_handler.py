@@ -433,55 +433,55 @@ class RealtimeEventHandler:
                 ).model_dump()
             ]
 
-        # normalized_answer = last_answer.strip().lower()
-        # clarification_phrases = (
-        #     "clarify",
-        #     "clarification",
-        #     "please clarify",
-        #     "can you clarify",
-        #     "need more clarification",
-        #     "more clarification",
-        #     "not clear",
-        #     "unclear",
-        #     "what do you mean",
-        # )
-        # if normalized_answer and any(phrase in normalized_answer for phrase in clarification_phrases):
-        #     intent_logger.info(
-        #         "Clarification phrase override",
-        #         event_type="intent_gap.clarification_override",
-        #         metadata={
-        #             "exchange_id": exchange_id,
-        #             "gap_ms": gap_ms,
-        #         },
-        #     )
-        #     events: List[Dict[str, Any]] = [
-        #         IntentDecisionEvent(
-        #             exchange_id=exchange_id,
-        #             intent="CLARIFICATION",
-        #             confidence=1.0,
-        #             action="clarify",
-        #             gap_ms=gap_ms,
-        #         ).model_dump()
-        #     ]
-        #     clarification = await self._generate_clarification(
-        #         question=question,
-        #         candidate_request=last_answer,
-        #     )
-        #     intent_logger.info(
-        #         "Clarification generated",
-        #         event_type="intent_gap.clarification_generated",
-        #         metadata={
-        #             "exchange_id": exchange_id,
-        #             "clarification_len": len(clarification),
-        #         },
-        #     )
-        #     events.append(
-        #         ClarificationResponseEvent(
-        #             exchange_id=exchange_id,
-        #             clarification_text=clarification,
-        #         ).model_dump()
-        #     )
-        #     return events
+        normalized_answer = last_answer.strip().lower()
+        clarification_phrases = (
+            "clarify",
+            "clarification",
+            "please clarify",
+            "can you clarify",
+            "need more clarification",
+            "more clarification",
+            "not clear",
+            "unclear",
+            "what do you mean",
+        )
+        if normalized_answer and any(phrase in normalized_answer for phrase in clarification_phrases):
+            intent_logger.info(
+                "Clarification phrase override",
+                event_type="intent_gap.clarification_override",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "gap_ms": gap_ms,
+                },
+            )
+            events: List[Dict[str, Any]] = [
+                IntentDecisionEvent(
+                    exchange_id=exchange_id,
+                    intent="CLARIFICATION",
+                    confidence=1.0,
+                    action="clarify",
+                    gap_ms=gap_ms,
+                ).model_dump()
+            ]
+            clarification = await self._generate_clarification(
+                question=question,
+                candidate_request=last_answer,
+            )
+            intent_logger.info(
+                "Clarification generated",
+                event_type="intent_gap.clarification_generated",
+                metadata={
+                    "exchange_id": exchange_id,
+                    "clarification_len": len(clarification),
+                },
+            )
+            events.append(
+                ClarificationResponseEvent(
+                    exchange_id=exchange_id,
+                    clarification_text=clarification,
+                ).model_dump()
+            )
+            return events
         
         # Clarification override disabled; rely on model output.
 

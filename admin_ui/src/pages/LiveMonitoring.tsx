@@ -148,7 +148,21 @@ function useWebRtcLiveStream(submissionId: number | null, enabled: boolean) {
   };
 
   useEffect(() => {
-    const signalingBase = import.meta.env.VITE_PROCTORING_LIVE_SIGNALING_URL as string | undefined;
+    const normalizeSignalingBase = (raw?: string) => {
+      if (!raw) return raw;
+      let base = raw;
+      if (base.startsWith("http")) {
+        base = base.replace(/^http/, "ws");
+      }
+      if (window.location.protocol === "https:" && base.startsWith("ws://")) {
+        base = base.replace(/^ws:\/\//, "wss://");
+      }
+      return base;
+    };
+
+    const signalingBase = normalizeSignalingBase(
+      import.meta.env.VITE_PROCTORING_LIVE_SIGNALING_URL as string | undefined,
+    );
 
     if (!enabled || !submissionId) {
       setStatus("idle");

@@ -24,12 +24,14 @@ interface SpeakingQuestionProps {
   difficulty?: 'easy' | 'medium' | 'hard';
   topic?: string;
   onIntentGap?: (lastAnswer: string, gapMs: number) => void;
+  onAnswer?: (answer: string) => void;
   onForceNext?: (answer: string) => void;
   initialAnswer?: string;
   onAnswerDraftChange?: (answer: string) => void;
   clarificationResponse?: ClarificationResponse | null;
   intentDecision?: IntentDecision | null;
   phase: string;
+  onComplete?: () => void;
   integrityLevel?: IntegrityLevel;
   tabSwitchCount?: number;
   focusLossCount?: number;
@@ -54,6 +56,7 @@ export const SpeakingQuestion = ({
   difficulty,
   topic,
   onIntentGap,
+  onAnswer,
   onForceNext,
   initialAnswer = '',
   onAnswerDraftChange,
@@ -876,6 +879,7 @@ export const SpeakingQuestion = ({
 
   const handleForceNext = useCallback(() => {
     if (isPaused || isSubmittingAnswer) return;
+    if (!onAnswer && !onForceNext) return;
     setIsSubmittingAnswer(true);
     window.speechSynthesis.cancel();
     stopListening();
@@ -884,8 +888,9 @@ export const SpeakingQuestion = ({
     }
 
     const finalAnswer = userResponse.trim() || 'No response provided.';
+    onAnswer?.(finalAnswer);
     onForceNext?.(finalAnswer);
-  }, [isPaused, isSubmittingAnswer, onForceNext, stopListening, userResponse]);
+  }, [isPaused, isSubmittingAnswer, onAnswer, onForceNext, stopListening, userResponse]);
 
   const toggleMute = () => {
     if (!isMuted) {
@@ -1215,7 +1220,7 @@ export const SpeakingQuestion = ({
                         id="auto-advance-btn"
                         size="sm"
                         onClick={handleForceNext}
-                        disabled={!onForceNext || isSubmittingAnswer || isPaused}
+                        disabled={(!onAnswer && !onForceNext) || isSubmittingAnswer || isPaused}
                         className="h-9 gap-2 gradient-primary text-primary-foreground shadow-glow"
                       >
                         <SkipForward className="h-4 w-4" />

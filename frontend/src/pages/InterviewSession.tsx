@@ -68,9 +68,7 @@ const InterviewSession = () => {
     startSession,
     submitAnswer,
     submitCode,
-    sendIntentGap,
     requestNextAfterCodeResult,
-    forceNextQuestion,
     endInterviewEarly,
     saveDraftAnswer,
     loadDraft,
@@ -214,6 +212,14 @@ const InterviewSession = () => {
     endInterviewEarly();
   };
 
+  const handleSpeakingComplete = () => {
+    // This is called when the speaking question UI finishes — does nothing.
+    // The answer will be submitted via handleSpeakingAnswer.
+  };
+
+  const handleSpeakingAnswer = (answer: string) => {
+    submitAnswer(answer);
+  };
 
   const handleCodeSubmit = (code: string, language: string) => {
     submitCode(code, language as 'python' | 'java' | 'cpp');
@@ -831,12 +837,10 @@ const InterviewSession = () => {
         speechRate={Math.max(0.75, Math.min(1.35, interviewCustomization.wordsPerMinute / 160))}
         difficulty={currentQuestion.question_difficulty}
         topic={currentQuestion.section_name}
+        onComplete={handleSpeakingComplete}
+        onAnswer={handleSpeakingAnswer}
         initialAnswer={currentDraft ?? ''}
         onAnswerDraftChange={saveDraftAnswer}
-        onIntentGap={sendIntentGap}
-        onForceNext={forceNextQuestion}
-        clarificationResponse={state.lastClarification}
-        intentDecision={state.lastIntentDecision}
         phase={currentQuestion.question_type}
         integrityLevel={integrityLevel}
         tabSwitchCount={tabSwitchCount}
