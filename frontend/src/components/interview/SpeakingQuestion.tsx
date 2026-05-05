@@ -543,6 +543,9 @@ export const SpeakingQuestion = ({
 
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         microphoneProbeStreamRef.current = stream;
+        // Release the mic so SpeechRecognition can capture audio reliably.
+        stream.getTracks().forEach((track) => track.stop());
+        microphoneProbeStreamRef.current = null;
         setMicrophoneReady(true);
         setMicrophoneError('');
         return true;
