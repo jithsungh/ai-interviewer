@@ -140,15 +140,13 @@ export function useInterview(submissionId: number | null) {
     awaitingNextQuestionRef.current = false;
   }, []);
 
-  const setTransitionLoading = useCallback((message?: string) => {
-    clearQuestionLoadTimeout();
+  const setTransitionLoading = useCallback(() => {
     setState(prev => ({
       ...prev,
       phase: 'question_loading',
       error: null,
     }));
-    setQuestionLoadTimeout();
-  }, [clearQuestionLoadTimeout, setQuestionLoadTimeout]);
+  }, []);
 
   const createSocket = useCallback(() => {
     if (!submissionId) return null;
@@ -173,8 +171,8 @@ export function useInterview(submissionId: number | null) {
             timeRemainingSeconds: event.time_remaining_seconds,
             error: null,
           }));
-          setQuestionLoadTimeout();
           socketRef.current?.requestNextQuestion();
+          setQuestionLoadTimeout();
         },
 
         onQuestionPayload: (event: QuestionPayload) => {
@@ -203,7 +201,6 @@ export function useInterview(submissionId: number | null) {
             progress: event.progress_percentage,
             phase: 'question_loading',
           }));
-          setQuestionLoadTimeout();
           if (manualNextRequestedRef.current) {
             manualNextRequestedRef.current = false;
             awaitingNextQuestionRef.current = true;
@@ -211,6 +208,7 @@ export function useInterview(submissionId: number | null) {
             pendingNextQuestionRef.current = setTimeout(() => {
               if (awaitingNextQuestionRef.current) {
                 socketRef.current?.requestNextQuestion();
+                setQuestionLoadTimeout();
               }
             }, 200);
             return;
@@ -220,6 +218,7 @@ export function useInterview(submissionId: number | null) {
           pendingNextQuestionRef.current = setTimeout(() => {
             if (awaitingNextQuestionRef.current) {
               socketRef.current?.requestNextQuestion();
+              setQuestionLoadTimeout();
             }
           }, 600);
         },
@@ -525,10 +524,9 @@ export function useInterview(submissionId: number | null) {
     const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
-    setTransitionLoading('Loading next question...');
     manualNextRequestedRef.current = true;
     clearPendingNextQuestion();
-  }, [clearPendingNextQuestion, setTransitionLoading, state.currentQuestion]);
+  }, [clearPendingNextQuestion, state.currentQuestion]);
 
   const sendIntentGap = useCallback((
     lastAnswer: string,
@@ -577,8 +575,9 @@ export function useInterview(submissionId: number | null) {
   const requestNextAfterCodeResult = useCallback(() => {
     const socket = socketRef.current;
     if (!socket) return;
-    setTransitionLoading('Loading next question...');
+    setTransitionLoading();
     socket.requestNextQuestion();
+    setQuestionLoadTimeout();
   }, [setTransitionLoading]);
 
   const endInterviewEarly = useCallback(async () => {
