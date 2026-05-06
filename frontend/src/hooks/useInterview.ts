@@ -206,8 +206,13 @@ export function useInterview(submissionId: number | null) {
           setQuestionLoadTimeout();
           if (manualNextRequestedRef.current) {
             manualNextRequestedRef.current = false;
-            awaitingNextQuestionRef.current = false;
+            awaitingNextQuestionRef.current = true;
             clearPendingNextQuestion();
+            pendingNextQuestionRef.current = setTimeout(() => {
+              if (awaitingNextQuestionRef.current) {
+                socketRef.current?.requestNextQuestion();
+              }
+            }, 200);
             return;
           }
           awaitingNextQuestionRef.current = true;
@@ -523,9 +528,6 @@ export function useInterview(submissionId: number | null) {
     setTransitionLoading('Loading next question...');
     manualNextRequestedRef.current = true;
     clearPendingNextQuestion();
-    pendingNextQuestionRef.current = setTimeout(() => {
-      socket.requestNextQuestion();
-    }, 200);
   }, [clearPendingNextQuestion, setTransitionLoading, state.currentQuestion]);
 
   const sendIntentGap = useCallback((
