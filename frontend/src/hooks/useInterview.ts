@@ -137,7 +137,6 @@ export function useInterview(submissionId: number | null) {
       clearTimeout(pendingNextQuestionRef.current);
       pendingNextQuestionRef.current = null;
     }
-    awaitingNextQuestionRef.current = false;
   }, []);
 
   const setTransitionLoading = useCallback(() => {
@@ -179,6 +178,8 @@ export function useInterview(submissionId: number | null) {
           console.log('📝 Question received:', event);
           clearQuestionLoadTimeout();
           clearPendingNextQuestion();
+          awaitingNextQuestionRef.current = false;
+          manualNextRequestedRef.current = false;
           questionStartTimeRef.current = Date.now();
           setState(prev => ({
             ...prev,
@@ -201,26 +202,10 @@ export function useInterview(submissionId: number | null) {
             progress: event.progress_percentage,
             phase: 'question_loading',
           }));
-          if (manualNextRequestedRef.current) {
-            manualNextRequestedRef.current = false;
-            awaitingNextQuestionRef.current = true;
-            clearPendingNextQuestion();
-            pendingNextQuestionRef.current = setTimeout(() => {
-              if (awaitingNextQuestionRef.current) {
-                socketRef.current?.requestNextQuestion();
-                setQuestionLoadTimeout();
-              }
-            }, 200);
-            return;
-          }
-          awaitingNextQuestionRef.current = true;
           clearPendingNextQuestion();
-          pendingNextQuestionRef.current = setTimeout(() => {
-            if (awaitingNextQuestionRef.current) {
-              socketRef.current?.requestNextQuestion();
-              setQuestionLoadTimeout();
-            }
-          }, 600);
+          awaitingNextQuestionRef.current = false;
+          manualNextRequestedRef.current = false;
+          setQuestionLoadTimeout();
         },
 
         onCodeSubmissionAccepted: () => {
@@ -524,8 +509,8 @@ export function useInterview(submissionId: number | null) {
     const responseTimeMs = Math.max(1, Date.now() - questionStartTimeRef.current);
     setState(prev => ({ ...prev, phase: 'submitting' }));
     socket.submitAnswer(question.exchange_id, responseText, responseTimeMs);
-    manualNextRequestedRef.current = true;
     clearPendingNextQuestion();
+    awaitingNextQuestionRef.current = false;
   }, [clearPendingNextQuestion, state.currentQuestion]);
 
   const sendIntentGap = useCallback((
@@ -607,6 +592,8 @@ export function useInterview(submissionId: number | null) {
     return () => {
       clearQuestionLoadTimeout();
       clearPendingNextQuestion();
+      awaitingNextQuestionRef.current = false;
+      manualNextRequestedRef.current = false;
       socketRef.current?.disconnect();
     };
   }, [clearPendingNextQuestion, clearQuestionLoadTimeout]);

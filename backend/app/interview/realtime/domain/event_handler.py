@@ -242,7 +242,7 @@ class RealtimeEventHandler:
         exchange_id: int,
         response_text: str,
         response_time_ms: int,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Handle submit_answer event.
 
@@ -255,7 +255,8 @@ class RealtimeEventHandler:
             response_time_ms: Time taken in milliseconds.
 
         Returns:
-            AnswerAcceptedEvent dict.
+            List of server events in send order:
+            [AnswerAcceptedEvent, QuestionPayloadEvent|InterviewCompletedEvent].
         """
         sequence_order = exchange_id
 
@@ -294,12 +295,20 @@ class RealtimeEventHandler:
         total_q = get_total_questions(snapshot)
         next_seq = sequence_order + 1 if sequence_order < total_q else None
 
-        return AnswerAcceptedEvent(
+        accepted_event = AnswerAcceptedEvent(
             exchange_id=exchange_model.id,
             sequence_order=sequence_order,
             next_sequence=next_seq,
             progress_percentage=progress.progress_percentage,
         ).model_dump()
+
+        # Immediately fetch and return the next question so the client does not
+        # need to issue a second request (which can race with UI delays/timeouts).
+        # This keeps the flow deterministic: submit_answer -> answer_accepted ->
+        # question_payload / interview_completed.
+        next_event = self.handle_request_next_question()
+
+        return [accepted_event, next_event]
 
     # ──────────────────────────────────────────────────────────────
     # submit_code
